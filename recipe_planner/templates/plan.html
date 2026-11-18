@@ -24,6 +24,7 @@
       {% if m.recipe.description %}<p class="small">{{ m.recipe.description }}</p>{% endif %}
     </div>
     <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
+      <a class="btn" href="{{ url_for('cook', meal_id=m.id) }}">Cook</a>
       <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
     </form>
   </div>

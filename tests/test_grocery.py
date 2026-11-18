@@ -87,3 +87,9 @@ def test_count_items_round_up():
     items = {i["key"]: i for i in grocery.build_shopping_list(meals)}
     assert items["avocado"]["amount"] == "1"
     assert items["coconut milk"]["amount"] == "1 can"
+
+
+def test_ingredient_line_round_trip():
+    for line in ["2 cups chicken broth", "1 1/2 cloves garlic", "3 bunches cilantro", "1 tbsp honey", "salt"]:
+        ing = grocery.parse_ingredient_line(line)
+        assert grocery.ingredient_to_line(ing) == line

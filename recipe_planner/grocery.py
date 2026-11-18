@@ -273,5 +273,9 @@ def ingredient_to_line(ing: dict) -> str:
     q = ing.get("quantity") or ""
     if isinstance(q, float) and q.is_integer():
         q = int(q)
-    parts = [str(_nice_number(float(q))) if q else "", ing.get("unit", ""), ing.get("name", "")]
+    unit = ing.get("unit", "")
+    # pluralize count-style units and cups; abbreviations (tbsp, oz, lb...) stay as-is
+    if q and float(q) > 1 and unit and (unit not in UNIT_TABLE or unit == "cup"):
+        unit = unit + ("es" if unit.endswith(("ch", "sh", "x")) else "s")
+    parts = [str(_nice_number(float(q))) if q else "", unit, ing.get("name", "")]
     return " ".join(p for p in parts if p)

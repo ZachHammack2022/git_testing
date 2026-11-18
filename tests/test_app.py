@@ -148,3 +148,16 @@ def test_always_buy_and_extras(client, app):
     # opting out on the shopping page
     oid2 = int(client.post(f"/plans/{pid}/order", data={"include_always": ["off"]}).headers["Location"].rsplit("/", 1)[1])
     assert "banana" not in [i["key"] for i in db.get_order(conn, oid2)["items"]]
+
+
+def test_cook_view_scales_and_rates(client, app):
+    pid = _plan(client)
+    conn = db.connect(app.config["DB_FILE"])
+    meal = db.get_plan(conn, pid)["meals"][0]
+    db.update_meal(conn, meal["id"], servings=meal["recipe"]["servings"] * 2)
+    page = client.get(f"/meals/{meal['id']}/cook").get_data(as_text=True)
+    from markupsafe import escape
+    assert "scaled from" in page and str(escape(meal["recipe"]["title"])) in page
+    client.post(f"/meals/{meal['id']}/feedback", data={"rating": "4", "again": "tweak", "notes": "more lime"})
+    fb = db.recent_feedback(conn)[0]
+    assert fb["rating"] == 4 and fb["make_again"] == "tweak" and fb["notes"] == "more lime"

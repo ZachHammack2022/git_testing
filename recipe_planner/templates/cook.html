@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Cook · {{ r.title }}{% endblock %}
+{% block content %}
+<p class="small"><a href="{{ url_for('show_plan', plan_id=plan.id) }}">← {{ m.day }} · week of {{ plan.week_start|pretty_date }}</a></p>
+<h1>{{ r.title }}</h1>
+<p class="muted">{{ r.prep_minutes }} min · serves {{ m.servings }}{% if scaled %} <span class="pill">scaled from {{ r.servings }}</span>{% endif %}</p>
+<div class="grid cook">
+  <div class="card">
+    <h3>Ingredients</h3>
+    <ul class="items">
+      {% for i in ingredients %}
+      <li><label class="inline"><input type="checkbox"> <span class="name">{{ i|ingredient_line }}</span></label></li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="card" style="grid-column: span 2; min-width: 0">
+    <h3>Steps</h3>
+    <ul class="items">
+      {% for s in r.steps %}
+      <li><label class="inline" style="align-items:flex-start"><input type="checkbox" style="margin-top:5px"> <span class="name"><strong>{{ loop.index }}.</strong> {{ s }}</span></label></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('save_meal_feedback', meal_id=m.id) }}" class="card">
+  <h3>How did it turn out?</h3>
+  <div class="stars" role="radiogroup" aria-label="Rating">
+    {% for n in [5,4,3,2,1] %}
+      <input type="radio" id="r-{{ n }}" name="rating" value="{{ n }}" {{ 'checked' if m.fb_rating == n }}>
+      <label for="r-{{ n }}" title="{{ n }} star{{ 's' if n > 1 }}">★</label>
+    {% endfor %}
+  </div>
+  <div class="row small" style="margin-top:6px">
+    {% for val, label in [('yes','Make again'),('tweak','Make again, with changes'),('no','Never again')] %}
+    <label class="inline"><input type="radio" name="again" value="{{ val }}" {{ 'checked' if (m.fb_make_again or 'yes') == val }}> {{ label }}</label>
+    {% endfor %}
+  </div>
+  <input type="text" name="notes" value="{{ m.fb_notes or '' }}" placeholder="Notes for next time" style="width:100%; margin-top:8px">
+  <p><button class="primary" type="submit">Save rating</button></p>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll('.cook input[type=checkbox]').forEach(cb =>
+    cb.addEventListener('change', () => cb.closest('li').classList.toggle('done', cb.checked)));
+  // Keep the screen awake while cooking, where supported.
+  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
+</script>
+{% endblock %}

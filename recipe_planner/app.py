@@ -244,7 +244,36 @@ def create_app(db_file: str | None = None) -> Flask:
             flash("Saved — future orders will link straight to this product." if url else "Product link cleared.", "info")
         return redirect(url_for("show_order", order_id=order_id) + f"#item-{key.replace(' ', '-')}")
 
+    @app.get("/meals/<int:meal_id>/cook")
+    def cook(meal_id):
+        conn = get_conn()
+        meal = db.get_meal(conn, meal_id) or abort(404)
+        plan = db.get_plan(conn, meal["plan_id"])
+        m = next(x for x in plan["meals"] if x["id"] == meal_id)
+        r = m["recipe"]
+        scale = m["servings"] / max(int(r["servings"] or 1), 1)
+        ingredients = [dict(i, quantity=grocery.parse_quantity(i.get("quantity")) * scale)
+                       for i in r["ingredients"]]
+        return render_template("cook.html", m=m, r=r, plan=plan, ingredients=ingredients,
+                               scaled=abs(scale - 1) > 0.01)
+
     # ---------------- feedback ----------------
+
+    @app.post("/meals/<int:meal_id>/feedback")
+    def save_meal_feedback(meal_id):
+        conn = get_conn()
+        meal = db.get_meal(conn, meal_id) or abort(404)
+        rating = request.form.get("rating", type=int)
+        if not rating:
+            flash("Pick a star rating.", "error")
+            return redirect(url_for("cook", meal_id=meal_id))
+        make_again = request.form.get("again", "yes")
+        if make_again not in ("yes", "tweak", "no"):
+            make_again = "yes"
+        db.save_feedback(conn, meal_id, meal["recipe_id"], max(1, min(5, rating)), make_again,
+                         request.form.get("notes", ""))
+        flash("Thanks! That'll shape future plans.", "info")
+        return redirect(url_for("home"))
 
     @app.get("/plans/<int:plan_id>/feedback")
     def feedback(plan_id):
