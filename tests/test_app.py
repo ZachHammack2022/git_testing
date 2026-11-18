@@ -256,3 +256,19 @@ def test_leftovers_scale_shopping(client, app):
     assert "for leftovers" in client.get(f"/meals/{mid}/cook").get_data(as_text=True)
     client.post(f"/meals/{mid}/leftovers")
     assert db.get_meal(conn, mid)["leftovers"] == 0
+
+
+def test_spending(client, app):
+    pid = _plan(client)
+    oid = int(client.post(f"/plans/{pid}/order").headers["Location"].rsplit("/", 1)[1])
+    client.post(f"/orders/{oid}/placed", data={"total": "$150.00"})
+    conn = db.connect(app.config["DB_FILE"])
+    assert db.get_order(conn, oid)["total"] == 150.0
+    s = db.spending_summary(conn)
+    assert s["avg_week"] == 150 and s["avg_dinner"] == 30
+    hist = client.get("/history").get_data(as_text=True)
+    assert "$150" in hist and "$30.00" in hist
+    r = client.post(f"/orders/{oid}/placed", data={"total": "abc"}, follow_redirects=True)
+    assert "should be a number" in r.get_data(as_text=True)
+    client.post(f"/orders/{oid}/placed", data={"total": "160.5"})
+    assert db.get_order(conn, oid)["total"] == 160.5

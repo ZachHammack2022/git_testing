@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS orders (
     plan_id INTEGER REFERENCES plans(id) ON DELETE SET NULL,
     items TEXT NOT NULL,            -- JSON list of shopping items (+ 'added' flag)
     status TEXT DEFAULT 'building', -- building | placed
+    total REAL,                     -- what the order cost, entered by hand
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     placed_at TEXT
 );
@@ -114,6 +115,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(plan_meals)")}
     if "locked" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN locked INTEGER DEFAULT 0")
+    order_cols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
+    if "total" not in order_cols:
+        conn.execute("ALTER TABLE orders ADD COLUMN total REAL")
     if "leftovers" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
 
@@ -468,11 +472,28 @@ def save_order_items(conn, order_id: int, items: list[dict]) -> None:
     conn.commit()
 
 
-def mark_order_placed(conn, order_id: int) -> None:
+def mark_order_placed(conn, order_id: int, total: float | None = None) -> None:
     conn.execute(
-        "UPDATE orders SET status='placed', placed_at=CURRENT_TIMESTAMP WHERE id=?", (order_id,)
+        "UPDATE orders SET status='placed', placed_at=COALESCE(placed_at, CURRENT_TIMESTAMP),"
+        " total=COALESCE(?, total) WHERE id=?",
+        (total, order_id),
     )
     conn.commit()
+
+
+def spending_summary(conn, weeks: int = 8) -> dict:
+    """Totals from placed orders that have a cost, grouped by plan week."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT p.week_start, SUM(o.total) AS total,"
+        " (SELECT COUNT(*) FROM plan_meals pm WHERE pm.plan_id = p.id) AS dinners"
+        " FROM orders o JOIN plans p ON p.id = o.plan_id"
+        " WHERE o.total IS NOT NULL GROUP BY p.id ORDER BY p.week_start DESC LIMIT ?", (weeks,))]
+    if not rows:
+        return {"weeks": [], "avg_week": None, "avg_dinner": None}
+    total = sum(r["total"] for r in rows)
+    dinners = sum(r["dinners"] for r in rows)
+    return {"weeks": rows, "avg_week": total / len(rows),
+            "avg_dinner": total / dinners if dinners else None}
 
 
 def order_for_plan(conn, plan_id: int) -> dict | None:

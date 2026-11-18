@@ -295,9 +295,18 @@ def create_app(db_file: str | None = None) -> Flask:
     @app.post("/orders/<int:order_id>/placed")
     def order_placed(order_id):
         conn = get_conn()
-        db.get_order(conn, order_id) or abort(404)
-        db.mark_order_placed(conn, order_id)
-        flash("Order marked as placed. Enjoy the week — come back to rate the meals!", "info")
+        order = db.get_order(conn, order_id) or abort(404)
+        raw = request.form.get("total", "").replace("$", "").replace(",", "").strip()
+        try:
+            total = round(float(raw), 2) if raw else None
+        except ValueError:
+            flash("Total should be a number, like 142.37.", "error")
+            return redirect(url_for("show_order", order_id=order_id))
+        db.mark_order_placed(conn, order_id, total)
+        if order["status"] != "placed":
+            flash("Order marked as placed. Enjoy the week — come back to rate the meals!", "info")
+        else:
+            flash("Saved.", "info")
         return redirect(url_for("show_order", order_id=order_id))
 
     @app.post("/orders/<int:order_id>/picks")
@@ -574,6 +583,7 @@ def create_app(db_file: str | None = None) -> Flask:
         retired = [r for r in recipes.values() if r["archived"]]
         return render_template("history.html", plans=db.list_plans(conn), orders=db.list_orders(conn),
                                feedback=db.recent_feedback(conn, 30), favorites=favorites,
-                               learned=learned, retired=retired)
+                               learned=learned, retired=retired,
+                               spending=db.spending_summary(conn))
 
     return app

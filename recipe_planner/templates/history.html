@@ -50,15 +50,28 @@
   </table>
   {% else %}<p class="muted">No plans yet.</p>{% endif %}
 </div>
+{% if spending.weeks %}
+<h2>Spending</h2>
+<div class="grid">
+  <div class="card"><div class="muted small">Average per week</div><div style="font-size:1.6rem; font-weight:700">${{ '%.0f'|format(spending.avg_week) }}</div></div>
+  {% if spending.avg_dinner %}<div class="card"><div class="muted small">Average per dinner</div><div style="font-size:1.6rem; font-weight:700">${{ '%.2f'|format(spending.avg_dinner) }}</div>
+    <div class="muted small">includes everything on the order</div></div>{% endif %}
+  <div class="card">
+    <div class="muted small">Recent weeks</div>
+    <table class="small">{% for w in spending.weeks %}<tr><td>{{ w.week_start|pretty_date }}</td><td style="text-align:right">${{ '%.2f'|format(w.total) }}</td></tr>{% endfor %}</table>
+  </div>
+</div>
+{% endif %}
 <h2>Orders</h2>
 <div class="card">
   {% if orders %}
   <table>
-    <tr><th>Started</th><th>Items</th><th>Status</th></tr>
+    <tr><th>Started</th><th>Items</th><th>Status</th><th>Total</th></tr>
     {% for o in orders %}
     <tr><td><a href="{{ url_for('show_order', order_id=o.id) }}">{{ o.created_at|pretty_date }}</a></td>
       <td>{{ o.added_count }} / {{ o.item_count }}</td>
-      <td>{{ 'placed ✓' if o.status == 'placed' else 'in progress' }}</td></tr>
+      <td>{{ 'placed ✓' if o.status == 'placed' else 'in progress' }}</td>
+      <td>{{ '$%.2f'|format(o.total) if o.total is not none else '' }}</td></tr>
     {% endfor %}
   </table>
   {% else %}<p class="muted">No orders yet.</p>{% endif %}
