@@ -7,6 +7,7 @@
           --accent: #4cae74; --accent-ink: #0d140f; --warn: #ef8a62; --soft: #1f2d24; }
 }
 * { box-sizing: border-box; }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--accent); }
 body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
 a { color: var(--accent); }
 header.top { background: var(--card); border-bottom: 1px solid var(--line); }
