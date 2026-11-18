@@ -120,3 +120,13 @@ def test_cuisine_affinity_lifts_untried_recipes(conn):
     with_aff = planner.score_recipe(thai[0], {}, {}, week, aff)
     without = planner.score_recipe(thai[0], {}, {}, week)
     assert with_aff > without + 0.5
+
+
+def test_use_up_prefers_matching_recipes(conn):
+    hits = 0
+    for seed in range(10):
+        pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=False, rng=random.Random(seed),
+                                use_up=["coconut milk"])
+        names = " ".join(i["name"] for m in db.get_plan(conn, pid)["meals"] for i in m["recipe"]["ingredients"])
+        hits += "coconut milk" in names
+    assert hits >= 9

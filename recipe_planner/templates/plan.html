@@ -15,6 +15,7 @@
 <details class="card">
   <summary>Re-plan this week — keeps meals you've locked 🔒</summary>
   <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="row">
+    <input type="text" name="use_up" placeholder="Use up: spinach, feta…" style="flex:1; min-width:160px">
     {% if ai_available %}
     <input type="text" name="request" placeholder="Optional: what should change?" style="flex:1; min-width:200px">
     <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>

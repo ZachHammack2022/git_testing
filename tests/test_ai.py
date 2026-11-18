@@ -94,3 +94,11 @@ def test_same_title_not_duplicated(conn, fake):
     a = ai._store_new_recipe(conn, NEW_RECIPE)
     b = ai._store_new_recipe(conn, dict(NEW_RECIPE, title=NEW_RECIPE["title"].upper()))
     assert a == b
+
+
+def test_ai_picks_with_disliked_ingredient_are_dropped(conn, fake):
+    db.save_settings(conn, {"cook_days": ["Mon"], "dinners_per_week": 1, "dislikes": "gochujang"})
+    fake({"summary": "s", "reused": [], "new": [{"day": "Mon", "recipe": NEW_RECIPE}]})
+    pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=True, use_up=["salmon"])
+    meal = db.get_plan(conn, pid)["meals"][0]
+    assert "gochujang" not in " ".join(i["name"] for i in meal["recipe"]["ingredients"])

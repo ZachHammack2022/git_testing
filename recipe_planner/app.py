@@ -79,7 +79,8 @@ def create_app(db_file: str | None = None) -> Flask:
         week_start -= dt.timedelta(days=week_start.weekday())  # snap to Monday
         use_ai = request.form.get("use_ai") == "on"
         plan_id = planner.plan_week(conn, week_start, use_ai=use_ai,
-                                    extra_request=request.form.get("request", ""))
+                                    extra_request=request.form.get("request", ""),
+                                    use_up=planner.split_csv(request.form.get("use_up", "")))
         plan = db.get_plan(conn, plan_id)
         if plan["notes"]:
             flash(plan["notes"], "info")
@@ -120,7 +121,8 @@ def create_app(db_file: str | None = None) -> Flask:
         conn = get_conn()
         plan_or_404(plan_id)
         msg = planner.regenerate(conn, plan_id, use_ai=request.form.get("use_ai") == "on",
-                                 extra_request=request.form.get("request", ""))
+                                 extra_request=request.form.get("request", ""),
+                                 use_up=planner.split_csv(request.form.get("use_up", "")))
         flash(msg, "info")
         return redirect(url_for("show_plan", plan_id=plan_id))
 

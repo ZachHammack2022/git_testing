@@ -28,7 +28,7 @@ def next_unplanned_week(latest_week: str | None, today: dt.date | None = None) -
     return week
 
 
-def _split_csv(s: str) -> list[str]:
+def split_csv(s: str) -> list[str]:
     return [x.strip().lower() for x in (s or "").replace(";", ",").split(",") if x.strip()]
 
 
@@ -73,7 +73,7 @@ def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
         elif weeks_ago < 3:
             score -= 0.5
 
-    favs = _split_csv(settings.get("favorite_cuisines", ""))
+    favs = split_csv(settings.get("favorite_cuisines", ""))
     if favs and recipe.get("cuisine", "").lower() in favs:
         score += 0.5
 
@@ -101,13 +101,14 @@ def heuristic_pick(
     exclude_ids: set[int] | None = None,
     already: list[dict] | None = None,
     affinity: dict | None = None,
+    use_up: list[str] | None = None,
 ) -> list[dict]:
     """Greedy pick with variety penalties and a small bonus for sharing fresh ingredients
     with the rest of the week (less waste). `already` = recipes fixed in the week.
     Returns [{day, recipe_id}]."""
     rng = rng or random.Random()
     exclude_ids = exclude_ids or set()
-    dislikes = _split_csv(settings.get("dislikes", ""))
+    dislikes = split_csv(settings.get("dislikes", ""))
     pool = [
         r for r in recipes
         if not r.get("archived") and r["id"] not in exclude_ids and not contains_disliked(r, dislikes)
@@ -115,6 +116,12 @@ def heuristic_pick(
     base = {r["id"]: score_recipe(r, stats, settings, week_start, affinity) + rng.uniform(0, 0.8)
             for r in pool}
     fresh = {r["id"]: _perishables(r) for r in pool}
+    wanted = [normalize_name(u) for u in (use_up or []) if u.strip()]
+    if wanted:
+        for r in pool:
+            names = [normalize_name(i.get("name", "")) for i in r.get("ingredients", [])]
+            hits = sum(1 for w in wanted if any(w in n for n in names))
+            base[r["id"]] += 1.2 * hits
     chosen: list[dict] = list(already or [])
     week_fresh: set[str] = set().union(*(_perishables(c) for c in chosen)) if chosen else set()
     picked: list[dict] = []
@@ -143,7 +150,8 @@ def ordered_days(days: list[str]) -> list[str]:
 
 def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_ai: bool,
                 extra_request: str = "", rng: random.Random | None = None,
-                keep: list[dict] | None = None) -> tuple[list[dict], str, str]:
+                keep: list[dict] | None = None,
+                use_up: list[str] | None = None) -> tuple[list[dict], str, str]:
     """Choose recipes for `days`, around already-fixed recipes in `keep`.
     Returns (picks [{day, recipe_id}], planner_name, summary)."""
     keep = keep or []
@@ -154,11 +162,16 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
 
         if ai.available():
             try:
-                picks, summary = ai.plan_week(conn, settings, days, week_start, extra_request,
+                request_text = extra_request
+                if use_up:
+                    request_text += f"\nUse up these ingredients I already have: {', '.join(use_up)}."
+                picks, summary = ai.plan_week(conn, settings, days, week_start, request_text,
                                               locked=[k["title"] for k in keep])
                 planner_name = "claude"
                 kept_ids = {k["id"] for k in keep}
-                picks = [p for p in picks if p["recipe_id"] not in kept_ids]
+                dislikes = split_csv(settings.get("dislikes", ""))
+                picks = [p for p in picks if p["recipe_id"] not in kept_ids
+                         and not contains_disliked(db.get_recipe(conn, p["recipe_id"]), dislikes)]
             except ai.AIError as e:
                 summary = f"Claude planning failed ({e}); used the built-in planner instead."
                 picks = []
@@ -170,6 +183,7 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
         fill = heuristic_pick(
             db.list_recipes(conn), db.recipe_stats(conn, week_start.isoformat()), settings,
             remaining, week_start, rng=rng, already=already, affinity=db.taste_affinity(conn),
+            use_up=use_up,
             exclude_ids={r["id"] for r in already},
         )
         picks.extend(fill)
@@ -177,7 +191,8 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
 
 
 def plan_week(conn, week_start: dt.date | None = None, use_ai: bool | None = None,
-              extra_request: str = "", rng: random.Random | None = None) -> int:
+              extra_request: str = "", rng: random.Random | None = None,
+              use_up: list[str] | None = None) -> int:
     """Create a plan for the week and return its id."""
     settings = db.get_settings(conn)
     week_start = week_start or upcoming_monday()
@@ -189,13 +204,13 @@ def plan_week(conn, week_start: dt.date | None = None, use_ai: bool | None = Non
         use_ai = bool(settings.get("use_ai"))
 
     picks, planner_name, summary = _pick_meals(conn, settings, days, week_start, use_ai,
-                                               extra_request, rng)
+                                               extra_request, rng, use_up=use_up)
     meals = [{"day": p["day"], "recipe_id": p["recipe_id"], "servings": servings} for p in picks]
     return db.create_plan(conn, week_start.isoformat(), meals, planner_name, summary)
 
 
 def regenerate(conn, plan_id: int, use_ai: bool | None = None, extra_request: str = "",
-               rng: random.Random | None = None) -> str:
+               rng: random.Random | None = None, use_up: list[str] | None = None) -> str:
     """Re-plan every unlocked meal of a plan, keeping locked ones. Returns a message."""
     plan = db.get_plan(conn, plan_id)
     settings = db.get_settings(conn)
@@ -210,7 +225,7 @@ def regenerate(conn, plan_id: int, use_ai: bool | None = None, extra_request: st
     current = {m["recipe_id"] for m in unlocked}
     picks, planner_name, summary = _pick_meals(
         conn, settings, days, week_start, use_ai, extra_request, rng,
-        keep=[m["recipe"] for m in locked],
+        keep=[m["recipe"] for m in locked], use_up=use_up,
     )
     # Prefer something different from what was there; fine if the library is small.
     by_day = {p["day"]: p["recipe_id"] for p in picks}
