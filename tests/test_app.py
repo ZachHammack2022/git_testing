@@ -304,3 +304,17 @@ def test_recipe_sort_and_filter(client, app):
     assert first_title not in untried
     quick = client.get("/recipes?sort=quick").get_data(as_text=True)
     assert "Pesto Gnocchi" in quick
+
+
+def test_free_port_skips_busy():
+    import socket
+    from recipe_planner.__main__ import free_port, port_in_use
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen()
+    busy = s.getsockname()[1]
+    try:
+        assert port_in_use(busy)
+        assert free_port(busy) != busy
+    finally:
+        s.close()
