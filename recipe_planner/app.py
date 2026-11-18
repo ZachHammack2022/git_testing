@@ -6,7 +6,7 @@ import os
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, url_for
 
-from . import ai, db, grocery, ordering, planner
+from . import ai, db, grocery, importer, ordering, planner
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -390,6 +390,29 @@ def create_app(db_file: str | None = None) -> Flask:
             flash(f"Import failed: {e}", "error")
             return redirect(url_for("new_recipe"))
         # Show the form pre-filled so it can be reviewed before saving.
+        return render_template("recipe_form.html", r=r, action=url_for("new_recipe"))
+
+    @app.post("/recipes/import-url")
+    def import_url():
+        conn = get_conn()
+        url = request.form.get("url", "").strip()
+        try:
+            page = importer.fetch(url)
+        except importer.RecipeImportError as e:
+            flash(str(e), "error")
+            return redirect(url_for("new_recipe"))
+        r = importer.parse_jsonld(page)
+        if r is None and ai.available():
+            try:
+                r = ai.recipe_from_text(importer.page_text(page),
+                                        int(db.get_settings(conn)["household_size"]))
+            except ai.AIError as e:
+                flash(f"Couldn't read a recipe from that page: {e}", "error")
+                return redirect(url_for("new_recipe"))
+        if r is None:
+            flash("No recipe data found on that page. Paste it into the form instead.", "error")
+            return redirect(url_for("new_recipe"))
+        flash("Imported — review and save.", "info")
         return render_template("recipe_form.html", r=r, action=url_for("new_recipe"))
 
     @app.route("/recipes/<int:recipe_id>/edit", methods=["GET", "POST"])

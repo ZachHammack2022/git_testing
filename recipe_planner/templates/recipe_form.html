@@ -2,6 +2,16 @@
 {% block title %}{{ 'Edit recipe' if r and r.id else 'New recipe' }}{% endblock %}
 {% block content %}
 <h1>{{ 'Edit recipe' if r and r.id else 'New recipe' }}</h1>
+{% if not (r and r.id) %}
+<form method="post" action="{{ url_for('import_url') }}" class="card">
+  <h3>Import from a link</h3>
+  <div class="row">
+    <input type="url" name="url" placeholder="https://www.example.com/some-recipe" style="flex:1; min-width:220px" required>
+    <button type="submit" onclick="this.textContent='Importing…'">Import</button>
+  </div>
+  <p class="muted small" style="margin-bottom:0">Works with most recipe sites. You'll review it before saving.</p>
+</form>
+{% endif %}
 {% if not (r and r.id) and ai_available %}
 <form method="post" action="{{ url_for('import_recipe') }}" class="card">
   <h3>Quick add with Claude</h3>
