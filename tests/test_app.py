@@ -272,3 +272,21 @@ def test_spending(client, app):
     assert "should be a number" in r.get_data(as_text=True)
     client.post(f"/orders/{oid}/placed", data={"total": "160.5"})
     assert db.get_order(conn, oid)["total"] == 160.5
+
+
+def test_password_protection(tmp_path, monkeypatch):
+    import base64
+    from recipe_planner.app import create_app
+    monkeypatch.setenv("RECIPE_PLANNER_PASSWORD", "s3cret")
+    c = create_app(str(tmp_path / "pw.db")).test_client()
+    assert c.get("/").status_code == 401
+    assert c.get("/static/style.css").status_code == 200
+    bad = base64.b64encode(b"me:wrong").decode()
+    assert c.get("/", headers={"Authorization": f"Basic {bad}"}).status_code == 401
+    good = base64.b64encode(b"me:s3cret").decode()
+    assert c.get("/", headers={"Authorization": f"Basic {good}"}).status_code == 200
+
+
+def test_manifest(client):
+    m = client.get("/manifest.webmanifest").get_json()
+    assert m["short_name"] == "Meals" and m["icons"]

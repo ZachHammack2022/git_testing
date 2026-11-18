@@ -20,6 +20,14 @@ python3 -m venv .venv
 .venv/bin/python -m recipe_planner          # then open http://127.0.0.1:5000
 ```
 
+### Use it from your phone
+
+```bash
+RECIPE_PLANNER_PASSWORD=pick-something ./run.sh --lan
+```
+
+This prints an address like `http://192.168.1.20:5000`. Open it on your phone while it's on the same Wi-Fi, and use "Add to Home Screen" to get an app icon. The password is optional, but without one anyone on your network can open the app. Your browser will ask for a username and the password; the username can be anything.
+
 Your data lives in `instance/planner.db` (SQLite). Set `RECIPE_DB=/path/to/file.db` to keep it somewhere else.
 
 ### Optional: Claude planning

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import hmac
 import os
+import secrets
 
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, url_for)
@@ -12,8 +14,30 @@ from . import ai, db, grocery, importer, ordering, planner
 
 def create_app(db_file: str | None = None) -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.environ.get("RECIPE_PLANNER_SECRET", "local-single-user-app")
+    app.secret_key = os.environ.get("RECIPE_PLANNER_SECRET") or secrets.token_hex(32)
     app.config["DB_FILE"] = db_file or db.db_path()
+    app.config["PASSWORD"] = os.environ.get("RECIPE_PLANNER_PASSWORD", "")
+
+    @app.before_request
+    def _require_password():
+        """Optional HTTP basic auth, for when the app is reachable from other devices."""
+        pw = app.config["PASSWORD"]
+        if not pw or request.endpoint in ("static", "manifest"):
+            return None
+        auth = request.authorization
+        if auth and auth.password and hmac.compare_digest(auth.password.encode(), pw.encode()):
+            return None
+        return Response("Password required.", 401,
+                        {"WWW-Authenticate": 'Basic realm="Meal Planner", charset="UTF-8"'})
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return jsonify({
+            "name": "Meal Planner", "short_name": "Meals", "start_url": "/", "display": "standalone",
+            "background_color": "#f7f6f2", "theme_color": "#2f7d4f",
+            "icons": [{"src": url_for("static", filename="icon.svg"), "sizes": "any",
+                       "type": "image/svg+xml"}],
+        })
 
     with db.connect(app.config["DB_FILE"]) as conn:
         db.init(conn)
