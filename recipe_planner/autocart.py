@@ -29,7 +29,12 @@ from pathlib import Path
 
 from . import db, ordering
 
-ADD_BUTTON = re.compile(r"^\s*(add to cart|add)\s*$", re.I)
+# "Add", "Add to cart", "Add Organic Avocado to cart" — but not "Add to List" / "Add to Registry".
+ADD_BUTTON = re.compile(r"^\s*add(\s+to\s+cart)?\s*$|^\s*add\b.*\bto\s+(your\s+)?cart\s*$", re.I)
+GREETINGS = ["#nav-link-accountList-nav-line-1", "#nav-link-accountList .nav-line-1",
+             "#glow-ingress-line1", "#nav-greeting-name"]
+FAIL_STREAK_PAUSE = 3
+ACTIVE_STATES = ("starting", "signin", "waiting", "running")
 AMAZON_HOME = os.environ.get("AUTOCART_HOME", "https://www.amazon.com/")
 CART_URL = os.environ.get("AUTOCART_CART", ordering.AMAZON_CART)
 RESULT_CARDS = '[data-component-type="s-search-result"]'
@@ -60,7 +65,7 @@ def read_status(order_id: int) -> dict | None:
 
 def is_running(order_id: int) -> bool:
     st = read_status(order_id)
-    if not st or st.get("state") in (None, "done", "error"):
+    if not st or st.get("state") not in ACTIVE_STATES:
         return False
     pid = st.get("pid")
     if not pid:
@@ -70,6 +75,22 @@ def is_running(order_id: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def debug_dir(order_id: int) -> Path:
+    return Path(db.db_path()).parent / f"autofill-{order_id}-debug"
+
+
+def _snapshot(page, order_id: int, key: str) -> str | None:
+    """Save what the browser saw for an item it couldn't add. Returns the file name."""
+    d = debug_dir(order_id)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        name = re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")[:60] + ".png"
+        page.screenshot(path=str(d / name))
+        return name
+    except Exception:
+        return None
 
 
 def playwright_available() -> bool:
@@ -138,11 +159,22 @@ def settle(page, say) -> bool:
     return not needs_human(page) or wait_for_human(page, say)
 
 
-def is_signed_in(page) -> bool:
-    greeting = page.locator("#nav-link-accountList-nav-line-1")
-    if not _visible(greeting):
-        return not needs_human(page)  # layout changed or not Amazon: don't block on it
-    return "sign in" not in greeting.first.inner_text().lower()
+def is_signed_in(page) -> bool | None:
+    """True = Amazon greets you by name, False = clearly signed out, None = can't tell."""
+    if "/ap/signin" in (page.url or ""):
+        return False
+    loc = page.locator("#nav-link-accountList-nav-line-1, #nav-link-accountList .nav-line-1")
+    if _visible(loc):
+        text = loc.first.inner_text().strip().lower()
+        if "sign in" in text:
+            return False
+        if text.startswith("hello"):
+            return True
+    try:
+        header = page.locator("header, #navbar, #nav-belt").first.inner_text(timeout=2000).lower()
+    except Exception:
+        return None
+    return False if "hello, sign in" in header else None
 
 
 def wait_for_human(page, say, timeout: float = 600) -> bool:
@@ -249,18 +281,25 @@ def fill_cart(order_id: int | None = None, interactive: bool = True, learn: bool
             if interactive:
                 input("Sign in to Amazon in the browser window if needed (and set your Whole Foods "
                       "delivery address), then press Enter here to start... ")
-            elif not is_signed_in(page):
-                say("waiting", "Sign in to Amazon in the browser window that just opened. "
-                    "I'll start as soon as you're in.")
-                end = time.time() + 600
-                while not is_signed_in(page) and time.time() < end:
+            elif is_signed_in(page) is not True:
+                say("signin", "Sign in to Amazon in the browser window that just opened (and make "
+                    "sure your Whole Foods delivery address is set). I'll start as soon as you're in.")
+                end = time.time() + 900
+                while time.time() < end:
                     page.wait_for_timeout(2000)
-                if not is_signed_in(page):
-                    say("error", "Timed out waiting for sign-in.")
+                    if (read_status(oid) or {}).get("go"):
+                        break  # you pressed "I'm signed in — start"
+                    if "/ap/" in (page.url or ""):
+                        continue  # mid sign-in: don't navigate away
+                    if is_signed_in(page) is True:
+                        break
+                else:
+                    say("error", "Timed out waiting for sign-in. Press Fill my cart to try again.")
                     ctx.close()
                     return 1
                 page.goto(AMAZON_HOME, wait_until="domcontentloaded")
 
+            fail_streak = 0
             for n, key in enumerate(todo, 1):
                 order = db.get_order(conn, oid)  # re-read: you may be ticking things meanwhile
                 item = next((i for i in order["items"] if i["key"] == key), None)
@@ -287,9 +326,29 @@ def fill_cart(order_id: int | None = None, interactive: bool = True, learn: bool
                             i["added"] = True
                             i.update(learned or {})
                     db.save_order_items(conn, oid, order["items"])
+                    fail_streak = 0
                 else:
                     skipped.append(item["name"])
+                    shot = _snapshot(page, oid, key)
+                    if shot:
+                        shots = (read_status(oid) or {}).get("screenshots", {})
+                        shots[item["name"]] = shot
+                        write_status(oid, screenshots=shots)
+                    fail_streak += 1
                 write_status(oid, added=added, skipped=skipped)
+                if fail_streak >= FAIL_STREAK_PAUSE and added == 0:
+                    msg = (f"The first {fail_streak} items couldn't be added. Usually that means "
+                           "you're not signed in, or Whole Foods delivery isn't set up for your "
+                           "address. Check the browser window, then press Fill my cart again. "
+                           "Screenshots of what I saw are on the order page.")
+                    say("error", msg)
+                    if stay_open and not interactive:
+                        try:
+                            page.wait_for_event("close", timeout=900_000)
+                        except Exception:
+                            pass
+                    ctx.close()
+                    return 1
                 page.wait_for_timeout(int(random.uniform(1500, 3500)))  # be gentle
 
             page.goto(CART_URL, wait_until="domcontentloaded")

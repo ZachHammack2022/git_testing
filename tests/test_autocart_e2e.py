@@ -2,6 +2,7 @@
 import glob
 import http.server
 import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -12,11 +13,21 @@ pytest.importorskip("playwright.sync_api")
 BROWSERS = glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")
 
 CLICKS = []
+STATE = {"home": "signed_in", "no_buttons": False}
+GREETING = "<div id='nav-link-accountList-nav-line-1'>{}</div>"
 
-HOME = "<div id='nav-link-accountList-nav-line-1'>Hello, Sam</div>"
+
+def home_page():
+    if STATE["home"] == "signed_in":
+        return GREETING.format("Hello, Sam")
+    if STATE["home"] == "signed_out":
+        # A real sign-in navigates back to Amazon; simulate that with a periodic reload.
+        return "<meta http-equiv='refresh' content='1'>" + GREETING.format("Hello, sign in")
+    return "<p>Some page layout we don't recognize</p>"
 
 
 def card(asin, title, sponsored=False, button=True):
+    button = button and not STATE["no_buttons"]
     btn = (f"<button onclick=\"fetch('/added?asin={asin}')\">Add to cart</button>" if button else "")
     return (f"<div data-component-type='s-search-result' data-asin='{asin}'>"
             f"{'<span>Sponsored</span>' if sponsored else ''}<h2><a href='/dp/{asin}'>{title}</a></h2>{btn}</div>")
@@ -56,12 +67,13 @@ class Fake(http.server.BaseHTTPRequestHandler):
             body = search_page(parse_qs(u.query)["k"][0])
         elif u.path.startswith("/dp/"):
             asin = u.path.split("/")[-1]
-            body = f"<button id='add-to-cart-button' onclick=\"fetch('/added?asin={asin}')\">Add to Cart</button>"
+            body = ("" if STATE["no_buttons"] else
+                    f"<button id='add-to-cart-button' onclick=\"fetch('/added?asin={asin}')\">Add to Cart</button>")
         elif u.path == "/never":
             CLICKS.append("auto-clicked-checkpoint")
-            body = HOME
+            body = home_page()
         else:
-            body = HOME
+            body = home_page()
         data = f"<html><body>{body}</body></html>".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
@@ -69,15 +81,89 @@ class Fake(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
-def test_fill_cart_end_to_end(tmp_path, monkeypatch):
+@pytest.fixture
+def fake_amazon(tmp_path, monkeypatch):
+    CLICKS.clear()
+    STATE.update(home="signed_in", no_buttons=False)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
     monkeypatch.setenv("RECIPE_DB", str(tmp_path / "e2e.db"))
-    monkeypatch.setenv("AUTOCART_BROWSER", BROWSERS[0])
+    monkeypatch.setenv("AUTOCART_BROWSER", BROWSERS[0] if BROWSERS else "")
     monkeypatch.setattr(autocart, "AMAZON_HOME", base + "/")
     monkeypatch.setattr(autocart, "CART_URL", base + "/cart")
+    yield base
+    srv.shutdown()
+
+
+def _order(base, keys):
+    conn = db.connect()
+    db.init(conn)
+    items = [{"key": k, "name": k, "amount": "1", "category": "produce", "recipes": [],
+              "url": f"{base}/s?k={k}", "has_pick": False, "pick_label": "", "added": False}
+             for k in keys]
+    return conn, db.create_order(conn, None, items)
+
+
+def _run(oid, tmp_path):
+    return autocart.fill_cart(oid, interactive=False, headless=True, stay_open=False,
+                              profile_dir=str(tmp_path / "profile"))
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_waits_for_sign_in(fake_amazon, tmp_path):
+    STATE["home"] = "signed_out"
+    conn, oid = _order(fake_amazon, ["avocado"])
+    seen = []
+
+    def person():  # watches the status, then "signs in"
+        for _ in range(100):
+            st = autocart.read_status(oid) or {}
+            if st.get("state") == "signin":
+                seen.append("signin")
+                assert CLICKS == []  # nothing attempted while signed out
+                time.sleep(2)
+                STATE["home"] = "signed_in"
+                return
+            time.sleep(0.2)
+    t = threading.Thread(target=person)
+    t.start()
+    assert _run(oid, tmp_path) == 0
+    t.join()
+    assert seen == ["signin"] and "B0AVOCADOX" in CLICKS
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_go_override_when_greeting_unrecognized(fake_amazon, tmp_path):
+    STATE["home"] = "unknown"
+    conn, oid = _order(fake_amazon, ["avocado"])
+
+    def press_go():
+        for _ in range(100):
+            if (autocart.read_status(oid) or {}).get("state") == "signin":
+                autocart.write_status(oid, go=True)
+                return
+            time.sleep(0.2)
+    threading.Thread(target=press_go).start()
+    assert _run(oid, tmp_path) == 0
+    assert "B0AVOCADOX" in CLICKS
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_stops_early_with_screenshots_when_nothing_adds(fake_amazon, tmp_path):
+    STATE["no_buttons"] = True
+    conn, oid = _order(fake_amazon, ["avocado", "kale", "onion", "garlic", "rice"])
+    assert _run(oid, tmp_path) == 1
+    st = autocart.read_status(oid)
+    assert st["state"] == "error" and "couldn't be added" in st["message"]
+    assert st["skipped"] == ["avocado", "kale", "onion"]          # stopped after 3, not all 5
+    assert set(st["screenshots"]) == {"avocado", "kale", "onion"}
+    assert (autocart.debug_dir(oid) / st["screenshots"]["kale"]).is_file()
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_fill_cart_end_to_end(fake_amazon, tmp_path):
+    base = fake_amazon
 
     conn = db.connect()
     db.init(conn)
@@ -90,7 +176,6 @@ def test_fill_cart_end_to_end(tmp_path, monkeypatch):
 
     rc = autocart.fill_cart(oid, interactive=False, headless=True, stay_open=False,
                             profile_dir=str(tmp_path / "profile"))
-    srv.shutdown()
     assert rc == 0
     assert "checkpoint-shown" in CLICKS and "auto-clicked-checkpoint" not in CLICKS
     assert "B0SPONSORX" not in CLICKS                      # skipped the sponsored result

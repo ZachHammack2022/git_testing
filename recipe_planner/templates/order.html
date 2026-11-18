@@ -34,7 +34,21 @@
   <p class="small" style="margin-bottom:0">One-time setup: in a terminal in the app folder run<br>
     <code>.venv/bin/pip install playwright &amp;&amp; .venv/bin/python -m playwright install chromium</code><br>then restart the app.</p>
   {% endif %}
-  <div id="autofill-msg" class="flash" style="margin:10px 0 0; {{ '' if autofill.message else 'display:none' }}">{{ autofill.message }}</div>
+  <div id="autofill-msg" class="flash {{ 'error' if autofill.state == 'error' }}" style="margin:10px 0 0; {{ '' if autofill.message else 'display:none' }}">{{ autofill.message }}</div>
+  <form method="post" action="{{ url_for('autofill_go', order_id=order.id) }}" id="go-form" style="margin-top:8px; {{ '' if autofill.state == 'signin' else 'display:none' }}">
+    <button type="submit">I'm signed in — start</button>
+  </form>
+  {% if autofill.screenshots and not autofill_active %}
+  <details style="margin-top:8px">
+    <summary>What I saw for items I couldn't add ({{ autofill.screenshots|length }})</summary>
+    <div class="grid" style="margin-top:8px">
+      {% for name, shot in autofill.screenshots|dictsort %}
+      <a href="{{ url_for('autofill_shot', order_id=order.id, name=shot) }}" target="_blank" class="small">{{ name }}<br>
+        <img src="{{ url_for('autofill_shot', order_id=order.id, name=shot) }}" alt="Screenshot for {{ name }}" style="width:100%; border:1px solid var(--line); border-radius:6px"></a>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -136,7 +150,12 @@ async function pollAutofill() {
   if (!res.ok) return;
   const d = await res.json();
   const msg = document.getElementById('autofill-msg');
-  if (msg && d.status.message) { msg.style.display = ''; msg.textContent = d.status.message; }
+  if (msg && d.status.message) {
+    msg.style.display = ''; msg.textContent = d.status.message;
+    msg.classList.toggle('error', d.status.state === 'error');
+  }
+  const go = document.getElementById('go-form');
+  if (go) go.style.display = d.status.state === 'signin' ? '' : 'none';
   const added = new Set(d.added);
   document.querySelectorAll('ul.items li').forEach(li => {
     const on = added.has(li.dataset.key);

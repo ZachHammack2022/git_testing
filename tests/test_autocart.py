@@ -77,3 +77,24 @@ def test_autofill_routes(client, app, monkeypatch):
     st = client.get(f"/orders/{oid}/autofill").get_json()
     assert st["status"]["state"] == "starting" and st["added"] == []
     assert "Filling…" in client.get(f"/orders/{oid}").get_data(as_text=True)
+
+
+def test_add_button_pattern():
+    ok = ["Add", "Add to cart", "Add to Cart", "Add Organic Hass Avocado to cart", "add to your cart"]
+    bad = ["Add to List", "Add to Registry", "Add a gift receipt", "Added", "Address"]
+    assert all(autocart.ADD_BUTTON.match(t) for t in ok)
+    assert not any(autocart.ADD_BUTTON.match(t) for t in bad)
+
+
+def test_go_override_and_screenshot_route(client, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    conn = db.connect(app.config["DB_FILE"])
+    oid = db.create_order(conn, None, [{"key": "x", "name": "x", "added": False}])
+    autocart.write_status(oid, state="signin", message="Sign in…")
+    client.post(f"/orders/{oid}/autofill/go")
+    assert autocart.read_status(oid)["go"] is True
+    d = autocart.debug_dir(oid)
+    d.mkdir(parents=True)
+    (d / "kale.png").write_bytes(b"\x89PNG fake")
+    assert client.get(f"/orders/{oid}/autofill/shot/kale.png").status_code == 200
+    assert client.get(f"/orders/{oid}/autofill/shot/..%2Fsecret.png").status_code == 404

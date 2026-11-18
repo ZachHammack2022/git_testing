@@ -5,6 +5,7 @@ import datetime as dt
 import hmac
 import json
 import os
+import re
 import secrets
 
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
@@ -285,7 +286,7 @@ def create_app(db_file: str | None = None) -> Flask:
         st = autocart.read_status(order_id) or {}
         return render_template("order.html", order=order, groups=groups, plan=plan,
                                text=grocery.as_text(order["items"]), autofill=st,
-                               autofill_active=st.get("state") in ("starting", "waiting", "running"),
+                               autofill_active=st.get("state") in autocart.ACTIVE_STATES,
                                autofill_ready=autocart.playwright_available())
 
     @app.post("/orders/<int:order_id>/items/<path:key>")
@@ -334,6 +335,8 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("show_order", order_id=order_id))
         if not autocart.is_running(order_id):
             autocart.status_path(order_id).unlink(missing_ok=True)
+            import shutil
+            shutil.rmtree(autocart.debug_dir(order_id), ignore_errors=True)
             env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
             log = open(autocart.status_path(order_id).with_suffix(".log"), "w")
             subprocess.Popen([sys.executable, "-m", "recipe_planner.autocart", "--order",
@@ -342,12 +345,28 @@ def create_app(db_file: str | None = None) -> Flask:
             autocart.write_status(order_id, state="starting", message="Opening a browser window…")
         return redirect(url_for("show_order", order_id=order_id))
 
+    @app.post("/orders/<int:order_id>/autofill/go")
+    def autofill_go(order_id):
+        """Manual override when the sign-in check can't tell you're signed in."""
+        if autocart.read_status(order_id):
+            autocart.write_status(order_id, go=True, message="Starting…")
+        return ("", 204) if request.is_json else redirect(url_for("show_order", order_id=order_id))
+
+    @app.get("/orders/<int:order_id>/autofill/shot/<name>")
+    def autofill_shot(order_id, name):
+        if not re.fullmatch(r"[a-z0-9-]+\.png", name):
+            abort(404)
+        path = autocart.debug_dir(order_id) / name
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png")
+
     @app.get("/orders/<int:order_id>/autofill")
     def autofill_status(order_id):
         conn = get_conn()
         order = db.get_order(conn, order_id) or abort(404)
         st = autocart.read_status(order_id) or {}
-        active = st.get("state") in ("starting", "waiting", "running")
+        active = st.get("state") in autocart.ACTIVE_STATES
         if active and st.get("pid") and not autocart.is_running(order_id):
             st, active = dict(st, state="error", message="The cart filler stopped unexpectedly."), False
         return jsonify(status=st, active=active,
