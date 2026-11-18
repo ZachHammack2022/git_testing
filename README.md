@@ -48,17 +48,19 @@ If a Claude call fails, the built-in planner takes over. Set `RECIPE_PLANNER_MOD
 
 | Step | Where | What happens |
 |---|---|---|
-| Plan | **This week → Make plan** | One dinner per cook day (set in Settings). The optional **Use up** field favors recipes that use ingredients you already have. You can lock 🔒 meals you want to keep and re-plan the rest, or swap, re-pick, resize or remove any meal. **Add to calendar** downloads the week as an `.ics` file. |
+| Plan | **This week → Make plan** | One dinner per cook day (set in Settings). Each day can have a theme ("tacos", "meatless", "quick", "fish", "pizza") that both planners follow. Mark a dinner 🥡 to cook extra for lunch the next day; the shopping list scales up to match. The optional **Use up** field favors recipes that use ingredients you already have. You can lock 🔒 meals you want to keep and re-plan the rest, or swap, re-pick, resize or remove any meal. **Add to calendar** downloads the week as an `.ics` file. |
 | Shop | **Shopping list** | Ingredients from every meal are combined and unit-converted (tbsp + cups, oz + lb), scaled to your servings, rounded up to whole items, and grouped by aisle. Pantry staples start unchecked. Tick "remember unchecked items" to add new staples. Your **Always buy** items (milk, coffee…) are added automatically. |
-| Order | **Order from Whole Foods** | Each item links to a Whole Foods search on Amazon, or straight to a product you saved for it. **Open next item** opens the next unchecked item in a new tab and ticks it off. A progress bar shows how far along you are. You can add one-off items or remove items. When you've checked out on Amazon, mark the order placed. |
-| Cook | **Cook** (on each dinner) | Ingredients scaled to that night's servings and steps with checkboxes. The screen stays awake while it's open. Rate the meal right at the bottom. |
+| Order | **Order from Whole Foods** | Each item links to a Whole Foods search on Amazon, or straight to a product you saved for it. **Open next item** opens the next unchecked item in a new tab and ticks it off. A progress bar shows how far along you are. You can add one-off items or remove items. When you've checked out on Amazon, mark the order placed and, optionally, enter the total. **History** then shows your average spend per week and per dinner. |
+| Cook | **Cook** (on each dinner) | Ingredients scaled to that night's servings and steps with checkboxes. Your notes from previous times you made it appear at the top. The screen stays awake while it's open. Rate the meal right at the bottom. |
 | Rate | **Rate meals** | 1–5 stars, "make again / with changes / never again", and notes. "Never again" retires the recipe. General notes ("more fish") are added to your standing planner notes. |
 
 ### Adding recipes
 
-The app starts with 41 dinners. To add more:
+The app starts with 41 dinners. You can sort the Recipes page by rating or cooking time, or show only recipes you haven't tried. To add more:
 - **Import from a link.** This reads the structured recipe data most recipe sites include. If a page doesn't have that data and Claude is set up, Claude reads the page instead.
 - **Quick add with Claude.** Paste recipe text or describe a dish.
+- **Discover (Claude).** Get four new ideas based on what you rate well, and keep the ones you like.
+- **Apply my notes (Claude).** On a recipe page, Claude rewrites the recipe to include your feedback notes, such as "double the garlic". You review it before saving.
 - **Type it in.** One ingredient per line, e.g. `1 1/2 lb chicken thighs`.
 
 ### About "ordering"
