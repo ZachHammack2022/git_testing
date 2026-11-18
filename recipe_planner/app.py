@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hmac
+import json
 import os
 import secrets
 
@@ -490,6 +491,35 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("new_recipe"))
         # Show the form pre-filled so it can be reviewed before saving.
         return render_template("recipe_form.html", r=r, action=url_for("new_recipe"))
+
+    @app.route("/recipes/discover", methods=["GET", "POST"])
+    def discover():
+        conn = get_conn()
+        ideas = []
+        if request.method == "POST":
+            if not ai.available():
+                flash("Discover needs an Anthropic API key.", "error")
+            else:
+                try:
+                    ideas = ai.discover(conn, db.get_settings(conn), 4, request.form.get("request", ""))
+                except ai.AIError as e:
+                    flash(f"Couldn't get ideas: {e}", "error")
+        return render_template("discover.html", ideas=ideas, ideas_json=[json.dumps(i) for i in ideas])
+
+    @app.post("/recipes/keep")
+    def keep_recipe():
+        conn = get_conn()
+        try:
+            r = json.loads(request.form.get("recipe", ""))
+            assert isinstance(r, dict) and r.get("title") and r.get("ingredients")
+        except (ValueError, AssertionError):
+            abort(400)
+        existing = db.find_recipe_by_title(conn, r["title"])
+        rid = existing["id"] if existing else db.add_recipe(conn, r, source="ai")
+        if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+            return jsonify(id=rid, url=url_for("recipe", recipe_id=rid))
+        flash("Added to your recipes.", "info")
+        return redirect(url_for("recipe", recipe_id=rid))
 
     @app.post("/recipes/import-url")
     def import_url():

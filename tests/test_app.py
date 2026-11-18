@@ -11,7 +11,7 @@ def _plan(client):
 
 def test_pages_render(client):
     for path in ["/", "/recipes", "/recipes/1", "/recipes/new", "/settings", "/history",
-                 "/recipes?archived=1", "/recipes?q=thai", "/recipes/1/edit"]:
+                 "/recipes?archived=1", "/recipes?q=thai", "/recipes/1/edit", "/recipes/discover"]:
         assert client.get(path).status_code == 200, path
 
 

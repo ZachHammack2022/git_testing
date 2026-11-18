@@ -129,3 +129,16 @@ def test_revise_recipe_route(client, app, monkeypatch):
     monkeypatch.setattr(ai, "revise_recipe", lambda r, notes: seen.setdefault("notes", notes) and dict(NEW_RECIPE, title="Revised"))
     page = client.post("/recipes/1/apply-notes").get_data(as_text=True)
     assert seen["notes"] == ["double the garlic"] and "Revised" in page and "/recipes/1/edit" in page
+
+
+def test_discover_and_keep(client, app, fake):
+    import json as _json
+    fake({"recipes": [NEW_RECIPE, dict(NEW_RECIPE, title="Mushroom Risotto")]})
+    page = client.post("/recipes/discover", data={"request": "fish"}).get_data(as_text=True)
+    assert "Crispy Gochujang Salmon" in page
+    assert page.count('name="recipe"') == 1  # existing title filtered out
+    r = client.post("/recipes/keep", data={"recipe": _json.dumps(NEW_RECIPE)}, headers={"X-Requested-With": "fetch"})
+    rid = r.get_json()["id"]
+    conn = db.connect(app.config["DB_FILE"])
+    assert db.get_recipe(conn, rid)["source"] == "ai"
+    assert client.post("/recipes/keep", data={"recipe": "nope"}).status_code == 400

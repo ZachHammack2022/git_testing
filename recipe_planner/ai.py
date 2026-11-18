@@ -306,3 +306,21 @@ def revise_recipe(recipe: dict, notes: list[str]) -> dict:
         + "\n".join(f"- {n}" for n in notes)
     )
     return _call(prompt, RECIPE_SCHEMA)
+
+
+def discover(conn, settings: dict, count: int = 4, request: str = "") -> list[dict]:
+    """Brand-new recipe ideas tailored to the household's tastes (not saved)."""
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["recipes"],
+        "properties": {"recipes": {"type": "array", "items": RECIPE_SCHEMA}},
+    }
+    prompt = (
+        f"{taste_context(conn, settings)}\n\n## Task\nSuggest {count} new dinner recipes I don't "
+        "already have that I'm likely to love, based on what I've rated well. Make them varied "
+        f"and serve {settings.get('household_size')}."
+    )
+    if request.strip():
+        prompt += f"\nWhat I'm in the mood for: {request.strip()}"
+    data = _call(prompt, schema)
+    existing = {r["title"].lower() for r in db.list_recipes(conn, include_archived=True)}
+    return [r for r in data.get("recipes", []) if r["title"].lower() not in existing and r.get("ingredients")]
