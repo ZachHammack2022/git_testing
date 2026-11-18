@@ -103,3 +103,20 @@ def test_overlap_bonus_prefers_shared_produce():
                                       rng=random.Random(seed), already=[fixed])
         wins += pick[0]["recipe_id"] == 2
     assert wins > 18
+
+
+def test_cuisine_affinity_lifts_untried_recipes(conn):
+    thai = [r for r in db.list_recipes(conn) if r["cuisine"] == "Thai"]
+    assert thai
+    # Rate a (new) Thai dish highly a few times
+    rid = db.add_recipe(conn, {"title": "Pad Thai", "cuisine": "Thai", "protein": "shrimp",
+                               "ingredients": [{"name": "rice noodles", "quantity": 8, "unit": "oz"}], "steps": []})
+    pid = db.create_plan(conn, "2026-01-05", [{"day": d, "recipe_id": rid, "servings": 2} for d in ["Mon", "Tue", "Wed"]], "heuristic")
+    for m in db.get_plan(conn, pid)["meals"]:
+        db.save_feedback(conn, m["id"], rid, 5, "yes", "")
+    aff = db.taste_affinity(conn)
+    assert aff["cuisine"]["thai"]["score"] > 1
+    week = dt.date(2026, 11, 23)
+    with_aff = planner.score_recipe(thai[0], {}, {}, week, aff)
+    without = planner.score_recipe(thai[0], {}, {}, week)
+    assert with_aff > without + 0.5

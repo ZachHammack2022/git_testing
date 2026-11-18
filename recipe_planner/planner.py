@@ -44,10 +44,15 @@ def contains_disliked(recipe: dict, dislikes: list[str]) -> bool:
     return False
 
 
-def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date) -> float:
+def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
+                 affinity: dict | None = None) -> float:
     """Higher = more likely to be picked. Exposed for tests and the UI."""
     s = stats.get(recipe["id"], {})
     score = 1.0
+    if affinity:
+        c = affinity.get("cuisine", {}).get((recipe.get("cuisine") or "").strip().lower())
+        p = affinity.get("protein", {}).get((recipe.get("protein") or "").strip().lower())
+        score += (c["score"] * 0.5 if c else 0) + (p["score"] * 0.4 if p else 0)
     if s.get("ratings"):
         score += (s["avg_rating"] - 3.0) * 0.9
         score += min(s.get("yes_votes", 0), 3) * 0.2
@@ -95,6 +100,7 @@ def heuristic_pick(
     rng: random.Random | None = None,
     exclude_ids: set[int] | None = None,
     already: list[dict] | None = None,
+    affinity: dict | None = None,
 ) -> list[dict]:
     """Greedy pick with variety penalties and a small bonus for sharing fresh ingredients
     with the rest of the week (less waste). `already` = recipes fixed in the week.
@@ -106,7 +112,8 @@ def heuristic_pick(
         r for r in recipes
         if not r.get("archived") and r["id"] not in exclude_ids and not contains_disliked(r, dislikes)
     ]
-    base = {r["id"]: score_recipe(r, stats, settings, week_start) + rng.uniform(0, 0.8) for r in pool}
+    base = {r["id"]: score_recipe(r, stats, settings, week_start, affinity) + rng.uniform(0, 0.8)
+            for r in pool}
     fresh = {r["id"]: _perishables(r) for r in pool}
     chosen: list[dict] = list(already or [])
     week_fresh: set[str] = set().union(*(_perishables(c) for c in chosen)) if chosen else set()
@@ -162,7 +169,7 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
         already = keep + [db.get_recipe(conn, p["recipe_id"]) for p in picks]
         fill = heuristic_pick(
             db.list_recipes(conn), db.recipe_stats(conn, week_start.isoformat()), settings,
-            remaining, week_start, rng=rng, already=already,
+            remaining, week_start, rng=rng, already=already, affinity=db.taste_affinity(conn),
             exclude_ids={r["id"] for r in already},
         )
         picks.extend(fill)
@@ -240,8 +247,9 @@ def swap_meal(conn, meal_id: int, request: str = "", use_ai: bool | None = None,
 
     week_start = dt.date.fromisoformat(plan["week_start"])
     pick = heuristic_pick(
-        db.list_recipes(conn), db.recipe_stats(conn, plan["week_start"]), settings, [meal["day"]], week_start,
-        rng=rng, exclude_ids=in_plan,
+        db.list_recipes(conn), db.recipe_stats(conn, plan["week_start"]), settings, [meal["day"]],
+        week_start, rng=rng, exclude_ids=in_plan, affinity=db.taste_affinity(conn),
+        already=[m["recipe"] for m in plan["meals"] if m["id"] != meal_id],
     )
     if not pick:
         return "No other recipes available to swap in."

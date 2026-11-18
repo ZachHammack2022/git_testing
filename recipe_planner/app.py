@@ -451,7 +451,17 @@ def create_app(db_file: str | None = None) -> Flask:
     @app.get("/history")
     def history():
         conn = get_conn()
+        stats = db.recipe_stats(conn)
+        recipes = {r["id"]: r for r in db.list_recipes(conn, include_archived=True)}
+        favorites = sorted(
+            ((recipes[rid], s) for rid, s in stats.items()
+             if rid in recipes and s.get("avg_rating") and s["avg_rating"] >= 4 and not recipes[rid]["archived"]),
+            key=lambda x: (-x[1]["avg_rating"], -x[1]["ratings"]))[:8]
+        aff = db.taste_affinity(conn)
+        learned = {f: sorted(aff[f].items(), key=lambda kv: -kv[1]["score"]) for f in aff}
+        retired = [r for r in recipes.values() if r["archived"]]
         return render_template("history.html", plans=db.list_plans(conn), orders=db.list_orders(conn),
-                               feedback=db.recent_feedback(conn, 30))
+                               feedback=db.recent_feedback(conn, 30), favorites=favorites,
+                               learned=learned, retired=retired)
 
     return app

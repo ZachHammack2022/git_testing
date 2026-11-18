@@ -137,6 +137,13 @@ def taste_context(conn, settings: dict) -> str:
             note = f" — \"{f['notes']}\"" if f["notes"] else ""
             lines.append(f"- {f['title']}: {f['rating']}/5, make again: {f['make_again']}{note}")
 
+    aff = db.taste_affinity(conn)
+    for field in ("cuisine", "protein"):
+        ranked = sorted(aff[field].items(), key=lambda kv: -kv[1]["score"])
+        if ranked:
+            lines.append(f"\n## Average rating by {field}")
+            lines.extend(f"- {k}: {v['avg']:.1f}/5 over {v['n']} meal(s)" for k, v in ranked)
+
     lines.append("\n## Recipe library (id | title | cuisine | protein | prep | avg rating | last planned)")
     for r in db.list_recipes(conn):
         s = stats.get(r["id"], {})

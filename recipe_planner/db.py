@@ -253,6 +253,25 @@ def recipe_stats(conn, before_week: str | None = None) -> dict[int, dict]:
     return stats
 
 
+def taste_affinity(conn) -> dict[str, dict[str, dict]]:
+    """How much you like each cuisine / protein, learned from all ratings.
+
+    score = sum(rating - 3) / (n + 2): positive = liked, negative = disliked, and shrunk toward
+    zero when there are only a few ratings so one meal doesn't swing everything.
+    """
+    out: dict[str, dict[str, dict]] = {"cuisine": {}, "protein": {}}
+    for field in out:
+        for row in conn.execute(
+            f"SELECT lower(trim(r.{field})) AS k, SUM(f.rating - 3) AS total, COUNT(*) AS n,"
+            " AVG(f.rating) AS avg"
+            f" FROM feedback f JOIN recipes r ON r.id = f.recipe_id"
+            f" WHERE trim(r.{field}) != '' GROUP BY lower(trim(r.{field}))"
+        ):
+            out[field][row["k"]] = {"score": row["total"] / (row["n"] + 2), "n": row["n"],
+                                    "avg": row["avg"]}
+    return out
+
+
 # ---------- plans ----------
 
 def create_plan(conn, week_start: str, meals: list[dict], planner: str, notes: str = "") -> int:

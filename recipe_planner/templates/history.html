@@ -2,6 +2,39 @@
 {% block title %}History{% endblock %}
 {% block content %}
 <h1>History</h1>
+{% if favorites or learned.cuisine or retired %}
+<h2>What the planner has learned</h2>
+<div class="grid">
+  {% if favorites %}
+  <div class="card">
+    <h3>Favorites</h3>
+    <ul class="items small">
+      {% for r, s in favorites %}<li><a href="{{ url_for('recipe', recipe_id=r.id) }}" style="flex:1">{{ r.title }}</a> <span>★ {{ '%.1f'|format(s.avg_rating) }}</span></li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% for field, label in [('cuisine', 'Cuisines'), ('protein', 'Proteins')] %}
+  {% if learned[field] %}
+  <div class="card">
+    <h3>{{ label }}</h3>
+    <ul class="items small">
+      {% for k, v in learned[field] %}
+      <li><span style="flex:1; text-transform:capitalize">{{ k }}</span>
+        <span class="muted">{{ '%.1f'|format(v.avg) }}★ · {{ v.n }}</span>
+        <span title="effect on planning">{{ '▲' if v.score > 0.3 else ('▼' if v.score < -0.3 else '•') }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% if retired %}
+  <div class="card">
+    <h3>Retired ({{ retired|length }})</h3>
+    <p class="small">{% for r in retired %}<a href="{{ url_for('recipe', recipe_id=r.id) }}">{{ r.title }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 <h2>Plans</h2>
 <div class="card">
   {% if plans %}

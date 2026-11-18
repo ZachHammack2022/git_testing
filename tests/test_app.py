@@ -55,6 +55,9 @@ def test_full_weekly_loop(client, app):
     retired = [m["recipe_id"] for m in plan["meals"][1:]]
     assert all(db.get_recipe(conn, rid)["archived"] for rid in retired)
 
+    hist = client.get("/history").get_data(as_text=True)
+    assert "What the planner has learned" in hist and "Retired" in hist
+
     # New order uses saved product pick when the item reappears
     assert db.product_picks(conn)[key]["url"].endswith("B000TEST")
 
