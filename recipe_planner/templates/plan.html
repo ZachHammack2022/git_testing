@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Plan · {{ plan.week_start|pretty_date }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>Week of {{ plan.week_start|pretty_date }}</h1>
+    <p class="muted small">Planned by {{ 'Claude' if plan.planner == 'claude' else 'your ratings' }}{% if plan.notes %} · {{ plan.notes }}{% endif %}</p>
+  </div>
+  <div class="row">
+    <a class="btn primary" href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list →</a>
+    <a class="btn" href="{{ url_for('feedback', plan_id=plan.id) }}">Rate meals</a>
+  </div>
+</div>
+
+{% for m in plan.meals %}
+<div class="card meal" id="meal-{{ m.id }}">
+  <div class="spread">
+    <div>
+      <div class="day">{{ m.day }}</div>
+      <h3><a href="{{ url_for('recipe', recipe_id=m.recipe.id) }}">{{ m.recipe.title }}</a></h3>
+      <div class="muted small">{{ m.recipe.cuisine }} · {{ m.recipe.protein }} · {{ m.recipe.prep_minutes }} min
+        {% if m.recipe.source == 'ai' %}<span class="pill">new from Claude</span>{% endif %}
+        {% if m.fb_rating %}<span class="pill">{{ '★' * m.fb_rating }}</span>{% endif %}</div>
+      {% if m.recipe.description %}<p class="small">{{ m.recipe.description }}</p>{% endif %}
+    </div>
+    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
+      <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
+    </form>
+  </div>
+  <details>
+    <summary>Swap or change</summary>
+    <form method="post" action="{{ url_for('swap_meal', meal_id=m.id) }}" class="row">
+      <input type="text" name="request" placeholder="{{ 'Optional: what do you feel like? e.g. something lighter' if ai_available else 'Pick a different recipe automatically' }}" style="flex:1; min-width:200px" {{ '' if ai_available else 'disabled' }}>
+      {% if ai_available %}<label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>{% endif %}
+      <button type="submit" onclick="this.textContent='Swapping…'">Swap</button>
+    </form>
+    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row" style="margin-top:8px">
+      <select name="recipe_id" style="flex:1; min-width:200px">
+        {% for r in recipes %}<option value="{{ r.id }}" {{ 'selected' if r.id == m.recipe_id }}>{{ r.title }}</option>{% endfor %}
+      </select>
+      <select name="day">{% for d in DAYS %}<option {{ 'selected' if d == m.day }}>{{ d }}</option>{% endfor %}</select>
+      <button type="submit">Update</button>
+    </form>
+    <form method="post" action="{{ url_for('delete_meal', meal_id=m.id) }}" style="margin-top:8px">
+      <button class="danger" type="submit">Remove this dinner</button>
+    </form>
+  </details>
+</div>
+{% else %}
+<p class="muted">No dinners in this plan yet.</p>
+{% endfor %}
+
+<div class="card">
+  <h3>Add a dinner</h3>
+  <form method="post" action="{{ url_for('add_meal', plan_id=plan.id) }}" class="row">
+    <select name="day">{% for d in (free_days or DAYS) %}<option>{{ d }}</option>{% endfor %}</select>
+    <select name="recipe_id" style="flex:1; min-width:200px">
+      <option value="">Choose a recipe…</option>
+      {% for r in recipes %}<option value="{{ r.id }}">{{ r.title }}</option>{% endfor %}
+    </select>
+    <button type="submit">Add</button>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
+  <button class="danger small" type="submit">Delete plan</button>
+</form>
+{% endblock %}

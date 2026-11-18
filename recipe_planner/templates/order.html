@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Order{% endblock %}
+{% block content %}
+{% set total = order['items']|length %}
+{% set done = order['items']|selectattr('added')|list|length %}
+<div class="spread">
+  <div>
+    <h1>Whole Foods order</h1>
+    <p class="muted small">
+      {% if plan %}Week of {{ plan.week_start|pretty_date }} · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">plan</a> · {% endif %}
+      {% if order.status == 'placed' %}Placed {{ order.placed_at|pretty_date }} ✓{% else %}Started {{ order.created_at|pretty_date }}{% endif %}
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ WHOLE_FOODS }}" target="_blank" rel="noopener">Whole Foods store ↗</a>
+    <a class="btn" href="{{ AMAZON_CART }}" target="_blank" rel="noopener">Amazon cart ↗</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="spread small"><span id="count">{{ done }} / {{ total }} in cart</span>
+    {% if order.status != 'placed' %}<button type="button" class="primary" id="next-btn">Open next item ↗</button>{% endif %}
+  </div>
+  <div class="progress" style="margin-top:8px"><div id="bar" style="width: {{ (100 * done / total) if total else 0 }}%"></div></div>
+  <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
+</div>
+
+{% for cat, items in groups %}
+<div class="card">
+  <h3 style="text-transform:capitalize">{{ cat }}</h3>
+  <ul class="items">
+    {% for it in items %}
+    <li id="item-{{ it.key|replace(' ', '-') }}" class="{{ 'done' if it.added }}" data-key="{{ it.key }}" data-url="{{ it.url }}">
+      <input type="checkbox" class="added" {{ 'checked' if it.added }} aria-label="{{ it.name }} added to cart">
+      <div style="flex:1">
+        <a class="name" href="{{ it.url }}" target="_blank" rel="noopener">{{ it.name }}</a>
+        {% if it.amount %}<span class="muted"> — {{ it.amount }}</span>{% endif %}
+        {% if it.has_pick %}<span class="pill">your usual{% if it.pick_label %}: {{ it.pick_label }}{% endif %}</span>{% endif %}
+        <details>
+          <summary class="small">{{ 'change product' if it.has_pick else 'save product' }}</summary>
+          <form method="post" action="{{ url_for('save_pick', order_id=order.id) }}" class="row">
+            <input type="hidden" name="key" value="{{ it.key }}">
+            <input type="url" name="url" placeholder="Paste amazon.com product link" value="{{ it.url if it.has_pick else '' }}" style="flex:2; min-width:200px">
+            <input type="text" name="label" placeholder="Label (optional)" value="{{ it.pick_label }}" style="flex:1; min-width:120px">
+            <button type="submit">Save</button>
+          </form>
+        </details>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+{% if order.status != 'placed' %}
+<form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card">
+  <h3>Done?</h3>
+  <p class="muted small">Check out on Amazon (choose your Whole Foods delivery window), then mark the order placed here.</p>
+  <button class="primary" type="submit">I placed the order ✓</button>
+</form>
+{% endif %}
+
+<details>
+  <summary>Plain-text list</summary>
+  <pre class="list" id="plain">{{ text }}</pre>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+const orderId = {{ order.id }};
+const total = {{ order['items']|length }};
+function refresh() {
+  const done = document.querySelectorAll('input.added:checked').length;
+  document.getElementById('count').textContent = `${done} / ${total} in cart`;
+  document.getElementById('bar').style.width = (total ? 100 * done / total : 0) + '%';
+}
+async function setAdded(li, added) {
+  li.classList.toggle('done', added);
+  li.querySelector('input.added').checked = added;
+  refresh();
+  await fetch(`/orders/${orderId}/items/${encodeURIComponent(li.dataset.key)}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({added})
+  });
+}
+document.querySelectorAll('input.added').forEach(cb =>
+  cb.addEventListener('change', () => setAdded(cb.closest('li'), cb.checked)));
+const nextBtn = document.getElementById('next-btn');
+if (nextBtn) nextBtn.addEventListener('click', () => {
+  const li = [...document.querySelectorAll('ul.items li')].find(l => !l.querySelector('input.added').checked);
+  if (!li) { nextBtn.textContent = 'All done ✓'; return; }
+  window.open(li.dataset.url, '_blank', 'noopener');
+  setAdded(li, true);
+  li.scrollIntoView({block: 'center'});
+});
+</script>
+{% endblock %}

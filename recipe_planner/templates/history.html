@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<h1>History</h1>
+<h2>Plans</h2>
+<div class="card">
+  {% if plans %}
+  <table>
+    <tr><th>Week</th><th>Dinners</th><th>Rated</th><th>Planner</th><th></th></tr>
+    {% for p in plans %}
+    <tr><td><a href="{{ url_for('show_plan', plan_id=p.id) }}">{{ p.week_start|pretty_date }}</a></td>
+      <td>{{ p.meal_count }}</td><td>{{ p.feedback_count }}</td>
+      <td class="small muted">{{ 'Claude' if p.planner == 'claude' else 'built-in' }}</td>
+      <td class="small"><a href="{{ url_for('feedback', plan_id=p.id) }}">rate</a></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No plans yet.</p>{% endif %}
+</div>
+<h2>Orders</h2>
+<div class="card">
+  {% if orders %}
+  <table>
+    <tr><th>Started</th><th>Items</th><th>Status</th></tr>
+    {% for o in orders %}
+    <tr><td><a href="{{ url_for('show_order', order_id=o.id) }}">{{ o.created_at|pretty_date }}</a></td>
+      <td>{{ o.added_count }} / {{ o.item_count }}</td>
+      <td>{{ 'placed ✓' if o.status == 'placed' else 'in progress' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No orders yet.</p>{% endif %}
+</div>
+<h2>Recent feedback</h2>
+<div class="card">
+  {% if feedback %}
+  <table>
+    {% for f in feedback %}
+    <tr><td><a href="{{ url_for('recipe', recipe_id=f.recipe_id) }}">{{ f.title }}</a></td><td>{{ '★' * f.rating }}</td>
+      <td class="small">{{ f.notes }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Rate some meals and they'll show up here.</p>{% endif %}
+</div>
+{% endblock %}

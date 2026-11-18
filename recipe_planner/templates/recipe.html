@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ r.title }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>{{ r.title }}</h1>
+    <p class="muted small">{{ r.cuisine }} · {{ r.protein }} · {{ r.prep_minutes }} min · serves {{ r.servings }}
+      {% for t in r.tags %}<span class="pill">{{ t }}</span>{% endfor %}</p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('edit_recipe', recipe_id=r.id) }}">Edit</a>
+    <form method="post" action="{{ url_for('archive_recipe', recipe_id=r.id) }}">
+      <button type="submit" class="{{ '' if r.archived else 'danger' }}">{{ 'Bring back' if r.archived else 'Retire' }}</button>
+    </form>
+  </div>
+</div>
+{% if r.archived %}<div class="flash">This recipe is retired and won't be planned.</div>{% endif %}
+{% if r.description %}<p>{{ r.description }}</p>{% endif %}
+<div class="grid">
+  <div class="card">
+    <h3>Ingredients</h3>
+    <ul>{% for i in r.ingredients %}<li>{{ i|ingredient_line }}</li>{% endfor %}</ul>
+  </div>
+  <div class="card" style="grid-column: span 2; min-width: 0">
+    <h3>Steps</h3>
+    <ol class="steps">{% for s in r.steps %}<li>{{ s }}</li>{% endfor %}</ol>
+  </div>
+</div>
+{% if feedback %}
+<h2>Your feedback</h2>
+<div class="card">
+  <table>
+    {% for f in feedback %}
+    <tr><td class="small muted">{{ f.created_at|pretty_date }}</td><td>{{ '★' * f.rating }}</td>
+        <td class="small">{{ {'yes':'make again','tweak':'with changes','no':'never again'}[f.make_again] }}</td>
+        <td class="small">{{ f.notes }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

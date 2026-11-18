@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit recipe' if r and r.id else 'New recipe' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Edit recipe' if r and r.id else 'New recipe' }}</h1>
+{% if not (r and r.id) and ai_available %}
+<form method="post" action="{{ url_for('import_recipe') }}" class="card">
+  <h3>Quick add with Claude</h3>
+  <p class="muted small">Paste a recipe from anywhere, or just describe a dish ("my mom's chicken paprikash"). You'll review it before saving.</p>
+  <textarea name="text" placeholder="Paste recipe text or describe a dish"></textarea>
+  <p><button type="submit" onclick="this.textContent='Reading…'">Fill in the form</button></p>
+</form>
+{% endif %}
+<form method="post" action="{{ action }}" class="card">
+  <label for="t">Title</label>
+  <input type="text" id="t" name="title" value="{{ r.title if r else '' }}" required style="width:100%">
+  <label for="d">Short description</label>
+  <input type="text" id="d" name="description" value="{{ r.description if r else '' }}" style="width:100%">
+  <div class="row">
+    <div><label for="c">Cuisine</label><input type="text" id="c" name="cuisine" value="{{ r.cuisine if r else '' }}"></div>
+    <div><label for="p">Main protein</label><input type="text" id="p" name="protein" value="{{ r.protein if r else '' }}" placeholder="chicken, beef, vegetarian…"></div>
+    <div><label for="s">Servings</label><input type="number" id="s" name="servings" min="1" value="{{ r.servings if r else 4 }}" style="width:80px"></div>
+    <div><label for="m">Minutes</label><input type="number" id="m" name="prep_minutes" min="5" value="{{ r.prep_minutes if r else 30 }}" style="width:80px"></div>
+  </div>
+  <label for="i">Ingredients <span class="muted small">— one per line, like "1 1/2 lb chicken thighs" or "2 cloves garlic"</span></label>
+  <textarea id="i" name="ingredients" rows="10">{% if r %}{% for i in r.ingredients %}{{ i|ingredient_line }}
+{% endfor %}{% endif %}</textarea>
+  <label for="st">Steps <span class="muted small">— one per line</span></label>
+  <textarea id="st" name="steps" rows="8">{% if r %}{{ r.steps|join('\n') }}{% endif %}</textarea>
+  <label for="tg">Tags <span class="muted small">— comma separated</span></label>
+  <input type="text" id="tg" name="tags" value="{{ r.tags|join(', ') if r else '' }}" style="width:100%">
+  <p><button class="primary" type="submit">Save recipe</button></p>
+</form>
+{% endblock %}
