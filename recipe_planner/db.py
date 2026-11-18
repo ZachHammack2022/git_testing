@@ -122,14 +122,35 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
 
 
+def _sync_seed_recipes(conn: sqlite3.Connection) -> None:
+    """Add built-in recipes this database hasn't received yet. Each title is offered once, so
+    recipes the user renamed or retired don't come back."""
+    from .seed_recipes import ORIGINAL_SEED_COUNT, SEED_RECIPES
+
+    row = conn.execute("SELECT value FROM settings WHERE key='seeded_titles'").fetchone()
+    if row:
+        offered = set(json.loads(row["value"]))
+    else:
+        # Databases from before this was tracked already got the original set.
+        has_any = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0] > 0
+        offered = ({r["title"] for r in SEED_RECIPES[:ORIGINAL_SEED_COUNT]}
+                   if has_any else set())
+    existing = {r[0].lower() for r in conn.execute("SELECT title FROM recipes")}
+    for r in SEED_RECIPES:
+        if r["title"] not in offered and r["title"].lower() not in existing:
+            add_recipe(conn, r, source="library")
+        offered.add(r["title"])
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES ('seeded_titles', ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps(sorted(offered)),),
+    )
+
+
 def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _migrate(conn)
-    if conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0] == 0:
-        from .seed_recipes import SEED_RECIPES
-
-        for r in SEED_RECIPES:
-            add_recipe(conn, r, source="library")
+    _sync_seed_recipes(conn)
     if conn.execute("SELECT COUNT(*) FROM pantry").fetchone()[0] == 0:
         for staple in ["salt", "black pepper", "olive oil", "water", "vegetable oil"]:
             conn.execute("INSERT OR IGNORE INTO pantry(name) VALUES (?)", (staple,))

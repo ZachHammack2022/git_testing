@@ -157,6 +157,29 @@ def test_themed_days_get_matching_recipes(conn):
         pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=False, rng=random.Random(seed))
         by_day = {m["day"]: m["recipe"] for m in db.get_plan(conn, pid)["meals"]}
         assert list(by_day) == ["Mon", "Tue", "Wed", "Thu", "Fri"]
-        assert by_day["Mon"]["protein"] in ("vegetarian", "tofu")
+        mon = by_day["Mon"]
+        assert mon["protein"] in ("vegetarian", "tofu") or "vegetarian" in mon["tags"]
         assert by_day["Tue"]["cuisine"] == "Mexican"
         assert "pizza" in by_day["Fri"]["title"].lower()
+
+
+def test_seed_sync(tmp_path):
+    from recipe_planner.seed_recipes import SEED_RECIPES
+    conn = db.connect(str(tmp_path / "s.db"))
+    db.init(conn)
+    assert len(db.list_recipes(conn)) == len(SEED_RECIPES) == 41
+    # renamed recipe doesn't come back on next start
+    r = db.find_recipe_by_title(conn, "Pasta Primavera")
+    db.update_recipe(conn, r["id"], dict(r, title="My Primavera"))
+    db.init(conn)
+    assert len(db.list_recipes(conn)) == 41
+
+
+def test_old_database_gets_new_seeds(tmp_path):
+    from recipe_planner.seed_recipes import SEED_RECIPES
+    conn = db.connect(str(tmp_path / "old.db"))
+    conn.executescript(db.SCHEMA)
+    for r in SEED_RECIPES[:27]:
+        db.add_recipe(conn, r, source="library")
+    db.init(conn)
+    assert len(db.list_recipes(conn)) == 41

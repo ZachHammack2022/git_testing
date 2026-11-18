@@ -56,7 +56,7 @@ If a Claude call fails, the built-in planner takes over. Set `RECIPE_PLANNER_MOD
 
 ### Adding recipes
 
-The app starts with 26 dinners. To add more:
+The app starts with 41 dinners. To add more:
 - **Import from a link.** This reads the structured recipe data most recipe sites include. If a page doesn't have that data and Claude is set up, Claude reads the page instead.
 - **Quick add with Claude.** Paste recipe text or describe a dish.
 - **Type it in.** One ingredient per line, e.g. `1 1/2 lb chicken thighs`.
