@@ -13,7 +13,7 @@ pytest.importorskip("playwright.sync_api")
 BROWSERS = glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")
 
 CLICKS = []
-STATE = {"home": "signed_in", "no_buttons": False}
+STATE = {"home": "signed_in", "no_buttons": False, "cart": {}}
 GREETING = "<div id='nav-link-accountList-nav-line-1'>{}</div>"
 
 
@@ -49,8 +49,14 @@ class Fake(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/added":
-            CLICKS.append(parse_qs(u.query)["asin"][0])
+            asin = parse_qs(u.query)["asin"][0]
+            CLICKS.append(asin)
+            STATE["cart"][asin] = f"Product {asin}"
             body = "ok"
+        elif u.path in ("/cart", "/cart/localmarket"):
+            rows = "".join(f"<div class='sc-list-item' data-asin='{a}'><span class='sc-product-title'>{t}</span>"
+                           f"<span data-a-selector='value'>1</span></div>" for a, t in STATE["cart"].items())
+            body = home_page() + f"<div id='sc-active-cart'>{rows}</div>"
         elif u.path == "/s" and parse_qs(u.query)["k"][0] == "egg" and "passed" not in u.query:
             self.send_response(302)  # Amazon-style soft bot check on the way
             self.send_header("Location", "/checkpoint/continue?next=/s%3Fk%3Degg%26passed%3D1")
@@ -84,7 +90,7 @@ class Fake(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def fake_amazon(tmp_path, monkeypatch):
     CLICKS.clear()
-    STATE.update(home="signed_in", no_buttons=False)
+    STATE.update(home="signed_in", no_buttons=False, cart={})
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -92,6 +98,7 @@ def fake_amazon(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOCART_BROWSER", BROWSERS[0] if BROWSERS else "")
     monkeypatch.setattr(autocart, "AMAZON_HOME", base + "/")
     monkeypatch.setattr(autocart, "CART_URL", base + "/cart")
+    monkeypatch.setattr(autocart, "WF_CART_URL", base + "/cart/localmarket")
     monkeypatch.setattr(autocart, "PAUSE_BETWEEN_ITEMS", (0.1, 0.2))
     yield base
     srv.shutdown()
@@ -182,7 +189,7 @@ def test_fill_cart_end_to_end(fake_amazon, tmp_path, monkeypatch):
               "url": f"{base}/s?k={k}", "has_pick": False, "pick_label": "", "added": False}
              for k in ["avocado", "lime", "nothing", "egg"]]
     items.append({"key": "honey", "name": "honey", "amount": "", "category": "pantry", "recipes": [],
-                  "url": f"{base}/dp/B0HONEY", "has_pick": True, "pick_label": "", "added": False})
+                  "url": f"{base}/dp/B0HONEYXXX", "has_pick": True, "pick_label": "", "added": False})
     oid = db.create_order(conn, None, items)
 
     rc = autocart.fill_cart(oid, interactive=False, headless=True, stay_open=False,
@@ -191,7 +198,7 @@ def test_fill_cart_end_to_end(fake_amazon, tmp_path, monkeypatch):
     assert "checkpoint-shown" in CLICKS and "auto-clicked-checkpoint" not in CLICKS
     assert "human" in STATES_SEEN
     assert "B0SPONSORX" not in CLICKS                      # skipped the sponsored result
-    assert {"B0AVOCADOX", "B0LIMEXXXX", "B0HONEY", "B0EGGXXXXX"} <= set(CLICKS)
+    assert {"B0AVOCADOX", "B0LIMEXXXX", "B0HONEYXXX", "B0EGGXXXXX"} <= set(CLICKS)
     order = db.get_order(conn, oid)
     added = {i["key"]: i["added"] for i in order["items"]}
     assert added == {"avocado": True, "lime": True, "nothing": False, "honey": True, "egg": True}
@@ -201,3 +208,47 @@ def test_fill_cart_end_to_end(fake_amazon, tmp_path, monkeypatch):
     st = autocart.read_status(oid)
     assert st["state"] == "done" and st["skipped"] == ["nothing"]
     assert st["added"] == 4 and st["total"] == 5 and "ready for review" in st["message"]
+    assert st["sync"]["ok"] and st["sync"]["cart_count"] == 4   # checked the real cart at the end
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_sync_follows_the_real_cart(fake_amazon, tmp_path):
+    base = fake_amazon
+    conn = db.connect()
+    db.init(conn)
+    items = [{"key": k, "name": k, "amount": "1", "category": "produce", "recipes": [],
+              "url": f"https://www.amazon.com/dp/{asin}", "has_pick": True, "pick_label": "", "added": True}
+             for k, asin in [("avocado", "B0AVOCADOX"), ("kale", "B0KALEXXXX")]]
+    items.append({"key": "baby spinach", "name": "baby spinach", "amount": "", "category": "produce",
+                  "recipes": [], "url": "https://www.amazon.com/s?k=spinach", "has_pick": False,
+                  "pick_label": "", "added": False})
+    oid = db.create_order(conn, None, items)
+    autocart.write_status(oid, state="done", added=2, total=3, message="ready")
+
+    # You removed kale on Amazon and added spinach and coffee yourself.
+    STATE["cart"] = {"B0AVOCADOX": "Hass Avocado", "B0SPINACH1": "365 Organic Baby Spinach 5oz",
+                     "B0COFFEE11": "Coffee Beans"}
+    assert autocart.sync_cart(oid, headless=True, profile_dir=str(tmp_path / "p")) == 0
+    got = {i["key"]: i["added"] for i in db.get_order(conn, oid)["items"]}
+    assert got == {"avocado": True, "kale": False, "baby spinach": True}
+    st = autocart.read_status(oid)
+    assert st["state"] == "done" and st["sync"]["extras"] == ["Coffee Beans"]
+
+    # You emptied the cart.
+    STATE["cart"] = {}
+    assert autocart.sync_cart(oid, headless=True, profile_dir=str(tmp_path / "p")) == 0
+    assert not any(i["added"] for i in db.get_order(conn, oid)["items"])
+    st = autocart.read_status(oid)
+    assert st["state"] == "idle" and st["sync"]["cart_count"] == 0 and st["skipped"] == []
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_sync_signed_out_reports_instead_of_unticking(fake_amazon, tmp_path):
+    STATE["home"] = "signed_out"
+    conn = db.connect()
+    db.init(conn)
+    oid = db.create_order(conn, None, [{"key": "kale", "name": "kale", "url": "https://www.amazon.com/dp/B0KALEXXXX",
+                                        "has_pick": True, "added": True}])
+    assert autocart.sync_cart(oid, headless=True, profile_dir=str(tmp_path / "p")) == 1
+    assert db.get_order(conn, oid)["items"][0]["added"] is True   # didn't wipe ticks
+    assert "sign in" in autocart.read_status(oid)["sync"]["error"]

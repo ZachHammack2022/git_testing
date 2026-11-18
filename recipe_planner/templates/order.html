@@ -19,7 +19,13 @@
 
 {% if order.status != 'placed' %}
 {% set af_done = autofill.state == 'done' %}
-{% set skipped_items = order['items']|selectattr('name', 'in', autofill.skipped or [])|list %}
+{% if autofill.sync and autofill.sync.ok %}
+  {% set skipped_items = order['items']|rejectattr('added')|list %}
+  {% set in_cart = order['items']|selectattr('added')|list|length %}
+{% else %}
+  {% set skipped_items = order['items']|selectattr('name', 'in', autofill.skipped or [])|list %}
+  {% set in_cart = autofill.added %}
+{% endif %}
 
 {% if af_done %}
 <div class="card ready" id="ready-card">
@@ -27,7 +33,7 @@
     <div>
       <div class="day">🛒 Cart ready</div>
       <h2 style="margin:2px 0 4px">Your cart is ready for review</h2>
-      <p class="small" style="margin:0">Added <strong>{{ autofill.added }} of {{ autofill.total }}</strong> items. Check sizes and quantities (it adds one of each), swap anything you want, then pick a delivery window and check out.</p>
+      <p class="small" style="margin:0"><strong>{{ in_cart }} of {{ order['items']|length }}</strong> items from this list are in your Amazon cart{% if autofill.sync and autofill.sync.ok %} (checked against the cart){% endif %}. Check sizes and quantities (it adds one of each), swap anything you want, then pick a delivery window and check out.</p>
     </div>
     <a class="btn primary big" href="{{ AMAZON_CART }}" target="_blank" rel="noopener">Review cart on Amazon ↗</a>
   </div>
@@ -54,7 +60,7 @@
   <div class="spread">
     <div>
       <h3 style="margin:0" id="autofill-title">{{ '✋ Needs you' if autofill.state == 'human' else 'Fill my cart automatically' }}</h3>
-      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then you get a "cart ready" summary. It never checks out.</p>
+      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then it checks your cart and you get a "cart ready" summary. It never checks out.</p>
     </div>
     {% if autofill_ready %}
     <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}" id="autofill-form">
@@ -87,9 +93,21 @@
 
 <div class="card">
   <div class="spread small"><span id="count">{{ done }} / {{ total }} in cart</span>
-    {% if order.status != 'placed' %}<button type="button" id="next-btn">Or add by hand: open next item ↗</button>{% endif %}
+    {% if order.status != 'placed' %}
+    <div class="row">
+      {% if can_sync %}<button type="button" id="sync-btn" title="Read your Amazon and Whole Foods carts and update the ticks">↻ Sync with cart</button>{% endif %}
+      <button type="button" id="next-btn">Or add by hand: open next item ↗</button>
+    </div>
+    {% endif %}
   </div>
   <div class="progress" style="margin-top:8px"><div id="bar" style="width: {{ (100 * done / total) if total else 0 }}%"></div></div>
+  {% if can_sync and order.status != 'placed' %}
+  <div class="small muted" id="sync-line" style="margin-top:8px"></div>
+  <form method="post" action="{{ url_for('sync_order', order_id=order.id) }}" id="sync-show" style="display:none; margin-top:6px">
+    <input type="hidden" name="show" value="1"><button type="submit" class="small">Sync with the browser window showing</button>
+  </form>
+  <div class="small" id="extras" style="margin-top:6px; display:none"></div>
+  {% endif %}
   <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
 </div>
 
@@ -190,29 +208,72 @@ if (afForm && 'Notification' in window && Notification.permission === 'default')
   // Ask once, on the click that starts the run, so we can ping you when it needs you / finishes.
   afForm.addEventListener('submit', () => { try { Notification.requestPermission(); } catch (e) {} });
 }
-async function pollAutofill() {
+const canSync = {{ (can_sync and order.status != 'placed')|tojson }};
+let sync = {{ (autofill.sync or {})|tojson }};
+let polling = false;
+const doneCardShown = !!document.getElementById('ready-card');
+const FILL_STATES = ['starting', 'signin', 'human', 'waiting', 'running'];
+
+function ago(t) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `${Math.round(s / 3600)} h ago`;
+}
+function renderSync(state) {
+  const line = document.getElementById('sync-line');
+  if (!line) return;
+  const show = document.getElementById('sync-show');
+  const extras = document.getElementById('extras');
+  const btn = document.getElementById('sync-btn');
+  if (btn) { btn.disabled = state === 'syncing'; btn.textContent = state === 'syncing' ? '↻ Syncing…' : '↻ Sync with cart'; }
+  if (state === 'syncing') { line.textContent = 'Checking your Amazon cart…'; return; }
+  if (!sync || !sync.at) { line.textContent = 'Not synced with your Amazon cart yet.'; return; }
+  if (!sync.ok) {
+    line.textContent = `Couldn't read your cart (${ago(sync.at)}): ${sync.error}`;
+    if (show) show.style.display = '';
+    return;
+  }
+  if (show) show.style.display = 'none';
+  line.textContent = `Matched to your Amazon cart ${ago(sync.at)} · ${sync.cart_count} item${sync.cart_count === 1 ? '' : 's'} in your cart`
+    + (sync.cart_count === 0 ? ' (it\'s empty)' : '') + '. Updates when you come back to this tab.';
+  if (extras) {
+    const ex = sync.extras || [];
+    extras.style.display = ex.length ? '' : 'none';
+    extras.textContent = ex.length ? `Also in your cart (not on this list): ${ex.join(' · ')}` : '';
+  }
+}
+
+async function poll() {
   let d;
   try {
     const res = await fetch(`/orders/${orderId}/autofill`);
     if (!res.ok) throw new Error();
     d = await res.json();
-  } catch (e) { setTimeout(pollAutofill, 4000); return; }
+  } catch (e) { setTimeout(poll, 4000); return; }
   const st = d.status || {};
-  const msg = document.getElementById('autofill-msg');
-  if (msg && st.message) {
-    msg.style.display = ''; msg.textContent = st.message;
-    msg.classList.toggle('error', st.state === 'error');
+  const filling = FILL_STATES.includes(st.state);
+  if (st.sync) sync = st.sync;
+  renderSync(st.state);
+
+  if (filling) {
+    const msg = document.getElementById('autofill-msg');
+    if (msg && st.message) {
+      msg.style.display = ''; msg.textContent = st.message;
+      msg.classList.toggle('error', st.state === 'error');
+    }
+    const go = document.getElementById('go-form');
+    if (go) go.style.display = st.state === 'signin' ? '' : 'none';
+    const card = document.getElementById('autofill-card');
+    const title = document.getElementById('autofill-title');
+    const needsYou = st.state === 'human' || st.state === 'signin';
+    if (card) card.classList.toggle('attention', needsYou);
+    if (title) title.textContent = st.state === 'human' ? '✋ Needs you' : (st.state === 'signin' ? '✋ Sign in to Amazon' : 'Filling your cart…');
+    document.title = needsYou ? '✋ Needs you — ' + baseTitle : `${(d.added || []).length}/${total} · ${baseTitle}`;
+    if (needsYou && lastState !== st.state) notify('Meal Planner needs you', st.message || 'Check the browser window.');
   }
-  const go = document.getElementById('go-form');
-  if (go) go.style.display = st.state === 'signin' ? '' : 'none';
-  const card = document.getElementById('autofill-card');
-  const title = document.getElementById('autofill-title');
-  const needsYou = st.state === 'human' || st.state === 'signin';
-  if (card) card.classList.toggle('attention', needsYou);
-  if (title) title.textContent = st.state === 'human' ? '✋ Needs you' : (st.state === 'signin' ? '✋ Sign in to Amazon' : 'Filling your cart…');
-  document.title = needsYou ? '✋ Needs you — ' + baseTitle : (d.active ? `${(d.added || []).length}/${total} · ${baseTitle}` : baseTitle);
-  if (needsYou && lastState !== st.state) notify('Meal Planner needs you', st.message || 'Check the browser window.');
-  if (st.state === 'done' && lastState !== 'done') notify('🛒 Your cart is ready for review', st.message || '');
+  if (st.state === 'done' && FILL_STATES.includes(lastState)) notify('🛒 Your cart is ready for review', st.message || '');
+  const wasFilling = FILL_STATES.includes(lastState);
   lastState = st.state;
 
   const added = new Set(d.added);
@@ -222,9 +283,39 @@ async function pollAutofill() {
     li.querySelector('input.added').checked = on;
   });
   refresh();
-  if (d.active) { setTimeout(pollAutofill, 1500); }
-  else { location.reload(); }  // finished or stopped: show the summary and learned products
+  if (d.active) { setTimeout(poll, 1500); return; }
+  polling = false;
+  document.title = baseTitle;
+  // Reload only when the page layout must change: a fill run ended, or the
+  // "cart ready" card should appear/disappear (e.g. you emptied your cart).
+  if (wasFilling || (st.state === 'done') !== doneCardShown) location.reload();
 }
-{% if autofill_active %}pollAutofill();{% endif %}
+function startPolling() { if (!polling) { polling = true; poll(); } }
+
+async function startSync() {
+  if (!canSync || polling) return;
+  try {
+    const res = await fetch(`/orders/${orderId}/sync`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const d = await res.json();
+    if (d.started) { renderSync('syncing'); startPolling(); }
+  } catch (e) {}
+}
+const syncBtn = document.getElementById('sync-btn');
+if (syncBtn) syncBtn.addEventListener('click', startSync);
+const stale = (secs) => !sync || !sync.at || (Date.now() / 1000 - sync.at) > secs;
+
+renderSync({{ (autofill.state or '')|tojson }});
+setInterval(() => { if (!polling) renderSync(lastState); }, 30000);
+{% if autofill_active or autofill.state == 'syncing' %}
+startPolling();
+{% else %}
+if (canSync && stale(120)) startSync();                 // opening the page checks the cart
+{% endif %}
+// Coming back to this tab (e.g. after editing your cart on Amazon) re-checks it,
+// and an open tab re-checks every few minutes.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && stale(20)) startSync();
+});
+setInterval(() => { if (document.visibilityState === 'visible' && stale(170)) startSync(); }, 60000);
 </script>
 {% endblock %}

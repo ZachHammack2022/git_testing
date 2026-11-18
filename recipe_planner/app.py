@@ -286,8 +286,10 @@ def create_app(db_file: str | None = None) -> Flask:
         st = autocart.read_status(order_id) or {}
         return render_template("order.html", order=order, groups=groups, plan=plan,
                                text=grocery.as_text(order["items"]), autofill=st,
-                               autofill_active=st.get("state") in autocart.ACTIVE_STATES,
-                               autofill_ready=autocart.playwright_available())
+                               autofill_active=st.get("state") in autocart.ACTIVE_STATES
+                               and st.get("state") != "syncing",
+                               autofill_ready=autocart.playwright_available(),
+                               can_sync=autocart.playwright_available() and autocart.has_profile())
 
     @app.post("/orders/<int:order_id>/items/<path:key>")
     def toggle_order_item(order_id, key):
@@ -343,6 +345,35 @@ def create_app(db_file: str | None = None) -> Flask:
                               str(order_id), "--no-prompt"], env=env, stdout=log,
                              stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
             autocart.write_status(order_id, state="starting", message="Opening a browser window…")
+        return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/sync")
+    def sync_order(order_id):
+        """Read the real Amazon/Whole Foods cart (in a background browser) and update ticks."""
+        import subprocess
+        import sys
+
+        conn = get_conn()
+        db.get_order(conn, order_id) or abort(404)
+        if not autocart.playwright_available():
+            msg = "Syncing needs Playwright (same one-time setup as Fill my cart)."
+            if request.is_json:
+                return jsonify(started=False, error=msg)
+            flash(msg, "error")
+            return redirect(url_for("show_order", order_id=order_id))
+        started = False
+        if not autocart.is_running(order_id):
+            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
+            args = [sys.executable, "-m", "recipe_planner.autocart", "--sync", "--order", str(order_id)]
+            if request.args.get("show") or request.form.get("show"):
+                args.append("--show")
+            log = open(autocart.status_path(order_id).with_suffix(".sync.log"), "w")
+            subprocess.Popen(args, env=env, stdout=log, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL)
+            autocart.write_status(order_id, state="syncing", message="Checking your Amazon cart…")
+            started = True
+        if request.is_json:
+            return jsonify(started=started)
         return redirect(url_for("show_order", order_id=order_id))
 
     @app.post("/orders/<int:order_id>/autofill/go")

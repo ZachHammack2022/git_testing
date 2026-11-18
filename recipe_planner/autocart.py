@@ -34,10 +34,17 @@ ADD_BUTTON = re.compile(r"^\s*add(\s+to\s+cart)?\s*$|^\s*add\b.*\bto\s+(your\s+)
 GREETINGS = ["#nav-link-accountList-nav-line-1", "#nav-link-accountList .nav-line-1",
              "#glow-ingress-line1", "#nav-greeting-name"]
 FAIL_STREAK_PAUSE = 3
-ACTIVE_STATES = ("starting", "signin", "human", "waiting", "running")
+ACTIVE_STATES = ("starting", "signin", "human", "waiting", "running", "syncing")
 PAUSE_BETWEEN_ITEMS = (2.5, 5.0)  # seconds; a human-ish pace makes Amazon's checks rarer
 AMAZON_HOME = os.environ.get("AUTOCART_HOME", "https://www.amazon.com/")
 CART_URL = os.environ.get("AUTOCART_CART", ordering.AMAZON_CART)
+# Whole Foods items live in their own cart; the main cart page may only link to it.
+WF_CART_URL = os.environ.get(
+    "AUTOCART_WF_CART",
+    f"https://www.amazon.com/cart/localmarket?almBrandId={ordering.WHOLE_FOODS_BRAND}")
+CART_ITEMS = ("#sc-active-cart [data-asin], .sc-list-item[data-asin], "
+              "[data-name='Active Items'] [data-asin], .sc-list-item-content[data-asin]")
+SYNC_STATES = ("syncing",)
 RESULT_CARDS = '[data-component-type="s-search-result"]'
 
 
@@ -335,10 +342,13 @@ def fill_cart(order_id: int | None = None, interactive: bool = True, learn: bool
                         url = ordering.whole_foods_product_url(result["asin"])
                         db.set_product_pick(conn, key, url, label)
                         learned = {"url": url, "has_pick": True, "pick_label": label}
+                    asin = result.get("asin") or asin_from_url(item.get("url", ""))
                     for i in order["items"]:
                         if i["key"] == key:
                             i["added"] = True
                             i.update(learned or {})
+                            if asin:
+                                i["asin"] = asin
                     db.save_order_items(conn, oid, order["items"])
                     fail_streak = 0
                 else:
@@ -365,25 +375,162 @@ def fill_cart(order_id: int | None = None, interactive: bool = True, learn: bool
                     return 1
                 page.wait_for_timeout(int(random.uniform(*PAUSE_BETWEEN_ITEMS) * 1000))
 
-            page.goto(CART_URL, wait_until="domcontentloaded")
-            try:
-                page.bring_to_front()
-            except Exception:
-                pass
+            # Check what really made it into the cart, so the ticks match Amazon.
+            say("running", "Checking your cart…", current="")
+            sync_info = None
+            cart = read_carts(page, say)
+            if cart is not None:
+                order = db.get_order(conn, oid)
+                items, extras = reconcile(order["items"], cart)
+                db.save_order_items(conn, oid, items)
+                sync_info = {"ok": True, "at": time.time(), "cart_count": len(cart),
+                             "matched": sum(1 for i in items if i["added"]),
+                             "extras": [e["title"] or e["asin"] for e in extras][:30]}
             msg = f"Your cart is ready for review: added {added} of {len(todo)} items."
+            extra = {"sync": sync_info} if sync_info else {}
             say("done", msg, current="", added=added, total=len(todo), skipped=skipped,
-                finished=time.time())
+                finished=time.time(), **extra)
             if interactive:
                 input("Press Enter to close the browser... ")
             elif stay_open:
-                try:  # leave the cart up until you close the window (max 1 hour)
-                    page.wait_for_event("close", timeout=3_600_000)
-                except Exception:
-                    pass
+                # Leave the cart up briefly, then close so the app can keep checking your cart
+                # in the background (the sign-in profile can only be open in one window).
+                page.wait_for_timeout(8000)
             ctx.close()
     except Exception as e:
         say("error", f"Stopped: {e.__class__.__name__}: {str(e)[:200]}")
         return 1
+    return 0
+
+
+# ---------------- reading the real cart ----------------
+
+def asin_from_url(url: str) -> str | None:
+    m = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url or "", re.I)
+    return m.group(1).upper() if m else None
+
+
+def _text(loc) -> str:
+    try:
+        return loc.first.inner_text(timeout=1000).strip() if loc.count() else ""
+    except Exception:
+        return ""
+
+
+def read_cart_page(page) -> list[dict]:
+    """Items on the cart page currently loaded: [{asin, title, qty}]."""
+    out, seen = [], set()
+    rows = page.locator(CART_ITEMS)
+    for i in range(min(rows.count(), 200)):
+        row = rows.nth(i)
+        asin = (row.get_attribute("data-asin") or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{10}", asin) or asin in seen:
+            continue
+        seen.add(asin)
+        title = _text(row.locator(".sc-product-title, .a-truncate-full, .sc-grid-item-product-title, h4, a.a-link-normal"))
+        qty = row.get_attribute("data-quantity") or _text(row.locator(
+            "[data-a-selector='value'], .a-dropdown-prompt, input[name='quantityBox']")) or "1"
+        m = re.search(r"\d+", qty)
+        out.append({"asin": asin, "title": re.sub(r"\s+", " ", title)[:120], "qty": int(m.group()) if m else 1})
+    return out
+
+
+def read_carts(page, say) -> list[dict] | None:
+    """Read the Amazon cart and the Whole Foods cart. None = Amazon needs the person first."""
+    items: dict[str, dict] = {}
+    for url in (CART_URL, WF_CART_URL):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1500)
+        except Exception:
+            continue
+        if needs_human(page) or is_signed_in(page) is False:
+            return None
+        for it in read_cart_page(page):
+            items.setdefault(it["asin"], it)
+    return list(items.values())
+
+
+def _words(s: str) -> set[str]:
+    from .grocery import normalize_name
+
+    return {w for w in normalize_name(s).split() if len(w) > 2}
+
+
+def reconcile(order_items: list[dict], cart: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Tick exactly the order items that are really in the cart.
+
+    Matched by product ID when we know it; otherwise every word of the item's name must
+    appear in a cart item's title ("baby spinach" ~ "365 Organic Baby Spinach, 5 oz").
+    Returns (updated items, cart items that aren't on this order)."""
+    by_asin = {c["asin"]: c for c in cart}
+    used: set[str] = set()
+    for it in order_items:
+        asin = it.get("asin") or asin_from_url(it.get("url", ""))
+        hit = None
+        if asin and asin in by_asin:
+            hit = by_asin[asin]
+        else:  # unknown product, or you swapped in a different one in the cart
+            want = _words(it["name"])
+            if want:
+                hit = next((c for c in cart if c["asin"] not in used and want <= _words(c["title"])), None)
+        it["added"] = hit is not None
+        it["in_cart_qty"] = hit["qty"] if hit else 0
+        if hit:
+            used.add(hit["asin"])
+            it.setdefault("asin", hit["asin"])
+    extras = [c for c in cart if c["asin"] not in used]
+    return order_items, extras
+
+
+def sync_cart(order_id: int, headless: bool = True, profile_dir: str | None = None) -> int:
+    """Look at the real carts and update the order's ticks to match."""
+    from playwright.sync_api import sync_playwright
+
+    conn = db.connect()
+    db.init(conn)
+    order = db.get_order(conn, order_id)
+    if not order:
+        return 1
+    prev = read_status(order_id) or {}
+    write_status(order_id, state="syncing", pid=os.getpid(), message="Checking your Amazon cart…",
+                 before_sync=prev.get("state") if prev.get("state") not in ACTIVE_STATES else prev.get("before_sync"))
+    profile = profile_dir or str(Path(db.db_path()).parent / "browser-profile")
+
+    def done(**fields):
+        before = (read_status(order_id) or {}).get("before_sync")
+        write_status(order_id, state=before if before in ("done",) else "idle", pid=None, **fields)
+
+    try:
+        with sync_playwright() as pw:
+            ctx = _launch(pw, profile, headless)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            cart = read_carts(page, lambda *a, **k: None)
+            ctx.close()
+    except Exception as e:
+        done(sync={"ok": False, "at": time.time(),
+                   "error": f"Couldn't open the browser ({e.__class__.__name__}). Is the cart filler "
+                            "window still open? Close it and try again."}, message="")
+        return 1
+    if cart is None:
+        done(sync={"ok": False, "at": time.time(), "error": "Amazon wants you to sign in (or confirm "
+                   "you're human) before I can read your cart. Use Fill my cart or Sync (show browser)."},
+             message="")
+        return 1
+
+    order = db.get_order(conn, order_id)  # re-read; you may have ticked things meanwhile
+    items, extras = reconcile(order["items"], cart)
+    db.save_order_items(conn, order_id, items)
+    in_cart = sum(1 for i in items if i["added"])
+    fields = {"sync": {"ok": True, "at": time.time(), "cart_count": len(cart), "matched": in_cart,
+                       "extras": [e["title"] or e["asin"] for e in extras][:30]}, "message": ""}
+    if in_cart == 0:
+        # Cart was emptied: forget the old "ready for review" summary.
+        fields.update(added=0, skipped=[], screenshots={})
+        write_status(order_id, state="idle", pid=None, before_sync=None, **fields)
+    else:
+        done(**fields)
+    print(f"Cart has {len(cart)} item(s); {in_cart} of {len(items)} order items are in it.")
     return 0
 
 
@@ -395,13 +542,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-prompt", action="store_true", help="don't wait for Enter (used by the web app)")
     p.add_argument("--no-learn", action="store_true", help="don't remember the products it picks")
     p.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--sync", action="store_true", help="read your Amazon cart and update the ticks")
+    p.add_argument("--show", action="store_true", help="with --sync: show the browser window")
     a = p.parse_args(argv)
     if not playwright_available():
         print("Needs Playwright:  pip install playwright && python -m playwright install chromium")
         return 2
+    if a.sync:
+        order = pick_order(db.connect(), a.order)
+        return sync_cart(order["id"], headless=not a.show, profile_dir=a.profile) if order else 1
     return fill_cart(a.order, interactive=not a.no_prompt, learn=not a.no_learn, limit=a.limit,
                      headless=a.headless, profile_dir=a.profile, stay_open=not a.headless)
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def has_profile() -> bool:
+    """True once the cart filler has been used (so there's an Amazon sign-in to reuse)."""
+    return (Path(db.db_path()).parent / "browser-profile").is_dir()

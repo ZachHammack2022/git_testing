@@ -116,8 +116,44 @@ def test_order_page_states(client, app, monkeypatch):
                           screenshots={"kale": "kale.png"}, message="Your cart is ready for review")
     page = client.get(f"/orders/{oid}").get_data(as_text=True)
     assert "Your cart is ready for review" in page and "Review cart on Amazon" in page
+    assert "1 of 2</strong> items" in page
     assert "Add these yourself (1)" in page and "s?k=kale" in page and "what I saw" in page
     assert "Fill my cart automatically" not in page
 
     db.mark_order_placed(conn, oid)
     assert "Review cart on Amazon" not in client.get(f"/orders/{oid}").get_data(as_text=True)
+
+
+def test_reconcile():
+    items = [
+        {"key": "avocado", "name": "avocado", "url": "https://www.amazon.com/dp/B000NOGKN4?almBrandId=x", "added": False},
+        {"key": "baby spinach", "name": "baby spinach", "url": "https://www.amazon.com/s?k=baby+spinach", "added": False},
+        {"key": "kale", "name": "kale", "url": "https://www.amazon.com/s?k=kale", "added": True},
+        {"key": "honey", "name": "honey", "url": "https://www.amazon.com/dp/B0HONEY123", "added": True},
+    ]
+    cart = [{"asin": "B000NOGKN4", "title": "Medium Hass Avocado", "qty": 3},
+            {"asin": "B0SPINACH1", "title": "365 Organic Baby Spinach, 5 oz", "qty": 1},
+            {"asin": "B0COFFEE11", "title": "Coffee Beans", "qty": 1}]
+    out, extras = autocart.reconcile(items, cart)
+    got = {i["key"]: i["added"] for i in out}
+    assert got == {"avocado": True, "baby spinach": True, "kale": False, "honey": False}
+    assert out[0]["in_cart_qty"] == 3 and out[1]["asin"] == "B0SPINACH1"
+    assert [e["title"] for e in extras] == ["Coffee Beans"]
+    out, extras = autocart.reconcile(out, [])
+    assert not any(i["added"] for i in out) and extras == []
+
+
+def test_sync_route(client, app, monkeypatch):
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    conn = db.connect(app.config["DB_FILE"])
+    oid = db.create_order(conn, None, [{"key": "x", "name": "x", "added": False}])
+    monkeypatch.setattr(autocart, "playwright_available", lambda: True)
+    started = {}
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.setdefault("args", args))
+    r = client.post(f"/orders/{oid}/sync", json={})
+    assert r.get_json()["started"] and "--sync" in started["args"] and "--show" not in started["args"]
+    assert autocart.read_status(oid)["state"] == "syncing"
+    # a second request while one runs doesn't start another
+    autocart.write_status(oid, pid=__import__("os").getpid())
+    assert client.post(f"/orders/{oid}/sync", json={}).get_json()["started"] is False
