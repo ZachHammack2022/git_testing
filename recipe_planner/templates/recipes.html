@@ -8,9 +8,15 @@
 <form class="row" method="get" style="margin-bottom:14px">
   <input type="text" name="q" value="{{ q }}" placeholder="Search title, cuisine, protein, tag" style="flex:1; min-width:200px">
   {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
+  <select name="sort" onchange="this.form.submit()" aria-label="Sort">
+    {% for v, label in [('name','A–Z'),('rating','Top rated'),('quick','Quickest'),('newest','Newest')] %}
+    <option value="{{ v }}" {{ 'selected' if sort == v }}>{{ label }}</option>{% endfor %}
+  </select>
+  <label class="inline small"><input type="checkbox" name="untried" value="1" {{ 'checked' if untried }} onchange="this.form.submit()"> Never tried</label>
   <button type="submit">Search</button>
   <a href="{{ url_for('recipes', archived=None if show_archived else 1) }}" class="small">{{ 'Show active' if show_archived else 'Show retired' }}</a>
 </form>
+<p class="muted small">{{ recipes|length }} recipe{{ 's' if recipes|length != 1 }}</p>
 <div class="grid">
   {% for r in recipes %}
   {% set s = stats.get(r.id, {}) %}

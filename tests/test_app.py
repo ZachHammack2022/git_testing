@@ -290,3 +290,17 @@ def test_password_protection(tmp_path, monkeypatch):
 def test_manifest(client):
     m = client.get("/manifest.webmanifest").get_json()
     assert m["short_name"] == "Meals" and m["icons"]
+
+
+def test_recipe_sort_and_filter(client, app):
+    conn = db.connect(app.config["DB_FILE"])
+    pid = db.create_plan(conn, "2026-11-09", [{"day": "Mon", "recipe_id": 5, "servings": 2}], "heuristic")
+    db.save_feedback(conn, db.get_plan(conn, pid)["meals"][0]["id"], 5, 5, "yes", "")
+    from markupsafe import escape
+    top = client.get("/recipes?sort=rating").get_data(as_text=True)
+    first_title = str(escape(db.get_recipe(conn, 5)["title"]))
+    assert top.index(first_title) < top.index("Mushroom Risotto")
+    untried = client.get("/recipes?untried=1").get_data(as_text=True)
+    assert first_title not in untried
+    quick = client.get("/recipes?sort=quick").get_data(as_text=True)
+    assert "Pesto Gnocchi" in quick

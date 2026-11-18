@@ -422,8 +422,18 @@ def create_app(db_file: str | None = None) -> Flask:
             items = [r for r in items if q in r["title"].lower() or q in r["cuisine"].lower()
                      or q in r["protein"].lower() or any(q in t for t in r["tags"])]
         stats = db.recipe_stats(conn)
+        sort = request.args.get("sort", "name")
+        if request.args.get("untried") == "1":
+            items = [r for r in items if not stats.get(r["id"], {}).get("ratings")]
+        if sort == "rating":
+            items.sort(key=lambda r: -(stats.get(r["id"], {}).get("avg_rating") or 0))
+        elif sort == "quick":
+            items.sort(key=lambda r: r["prep_minutes"] or 999)
+        elif sort == "newest":
+            items.sort(key=lambda r: -r["id"])
         return render_template("recipes.html", recipes=items, stats=stats, q=q,
-                               show_archived=show_archived)
+                               show_archived=show_archived, sort=sort,
+                               untried=request.args.get("untried") == "1")
 
     @app.get("/recipes/<int:recipe_id>")
     def recipe(recipe_id):
