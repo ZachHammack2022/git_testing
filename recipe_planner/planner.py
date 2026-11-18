@@ -78,6 +78,14 @@ def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date)
     return score
 
 
+PERISHABLE = {"produce", "dairy & eggs", "bakery"}
+
+
+def _perishables(recipe: dict) -> set[str]:
+    return {normalize_name(i.get("name", "")) for i in recipe.get("ingredients", [])
+            if (i.get("category") or "") in PERISHABLE}
+
+
 def heuristic_pick(
     recipes: list[dict],
     stats: dict,
@@ -86,8 +94,11 @@ def heuristic_pick(
     week_start: dt.date,
     rng: random.Random | None = None,
     exclude_ids: set[int] | None = None,
+    already: list[dict] | None = None,
 ) -> list[dict]:
-    """Greedy pick with variety penalties. Returns [{day, recipe_id}]."""
+    """Greedy pick with variety penalties and a small bonus for sharing fresh ingredients
+    with the rest of the week (less waste). `already` = recipes fixed in the week.
+    Returns [{day, recipe_id}]."""
     rng = rng or random.Random()
     exclude_ids = exclude_ids or set()
     dislikes = _split_csv(settings.get("dislikes", ""))
@@ -96,23 +107,66 @@ def heuristic_pick(
         if not r.get("archived") and r["id"] not in exclude_ids and not contains_disliked(r, dislikes)
     ]
     base = {r["id"]: score_recipe(r, stats, settings, week_start) + rng.uniform(0, 0.8) for r in pool}
-    chosen: list[dict] = []
-    for day in days:
+    fresh = {r["id"]: _perishables(r) for r in pool}
+    chosen: list[dict] = list(already or [])
+    week_fresh: set[str] = set().union(*(_perishables(c) for c in chosen)) if chosen else set()
+    picked: list[dict] = []
+    for _day in days:
         if not pool:
             break
+
         def adjusted(r):
             sc = base[r["id"]]
             same_cuisine = sum(1 for c in chosen if c.get("cuisine") == r.get("cuisine"))
             same_protein = sum(1 for c in chosen if c.get("protein") == r.get("protein"))
-            return sc - 0.8 * same_cuisine - 0.6 * same_protein
+            shared = len(fresh[r["id"]] & week_fresh)
+            return sc - 0.8 * same_cuisine - 0.6 * same_protein + min(shared, 4) * 0.15
+
         best = max(pool, key=adjusted)
         chosen.append(best)
+        picked.append(best)
+        week_fresh |= fresh[best["id"]]
         pool = [r for r in pool if r["id"] != best["id"]]
-    return [{"day": d, "recipe_id": r["id"]} for d, r in zip(days, chosen)]
+    return [{"day": d, "recipe_id": r["id"]} for d, r in zip(days, picked)]
 
 
 def ordered_days(days: list[str]) -> list[str]:
     return [d for d in db.DAYS if d in days]
+
+
+def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_ai: bool,
+                extra_request: str = "", rng: random.Random | None = None,
+                keep: list[dict] | None = None) -> tuple[list[dict], str, str]:
+    """Choose recipes for `days`, around already-fixed recipes in `keep`.
+    Returns (picks [{day, recipe_id}], planner_name, summary)."""
+    keep = keep or []
+    picks: list[dict] = []
+    planner_name, summary = "heuristic", ""
+    if use_ai and days:
+        from . import ai
+
+        if ai.available():
+            try:
+                picks, summary = ai.plan_week(conn, settings, days, week_start, extra_request,
+                                              locked=[k["title"] for k in keep])
+                planner_name = "claude"
+                kept_ids = {k["id"] for k in keep}
+                picks = [p for p in picks if p["recipe_id"] not in kept_ids]
+            except ai.AIError as e:
+                summary = f"Claude planning failed ({e}); used the built-in planner instead."
+                picks = []
+
+    if len(picks) < len(days):
+        taken_days = {p["day"] for p in picks}
+        remaining = [d for d in days if d not in taken_days]
+        already = keep + [db.get_recipe(conn, p["recipe_id"]) for p in picks]
+        fill = heuristic_pick(
+            db.list_recipes(conn), db.recipe_stats(conn, week_start.isoformat()), settings,
+            remaining, week_start, rng=rng, already=already,
+            exclude_ids={r["id"] for r in already},
+        )
+        picks.extend(fill)
+    return picks, planner_name, summary
 
 
 def plan_week(conn, week_start: dt.date | None = None, use_ai: bool | None = None,
@@ -124,35 +178,40 @@ def plan_week(conn, week_start: dt.date | None = None, use_ai: bool | None = Non
     n = int(settings.get("dinners_per_week") or len(days))
     days = days[:n] if n <= len(days) else days
     servings = int(settings.get("household_size") or 2)
-
     if use_ai is None:
         use_ai = bool(settings.get("use_ai"))
 
-    picks: list[dict] = []
-    planner_name = "heuristic"
-    summary = ""
-    if use_ai:
-        from . import ai
-
-        if ai.available():
-            try:
-                picks, summary = ai.plan_week(conn, settings, days, week_start, extra_request)
-                planner_name = "claude"
-            except ai.AIError as e:
-                summary = f"Claude planning failed ({e}); used the built-in planner instead."
-                picks = []
-
-    if len(picks) < len(days):
-        taken_days = {p["day"] for p in picks}
-        remaining = [d for d in days if d not in taken_days]
-        fill = heuristic_pick(
-            db.list_recipes(conn), db.recipe_stats(conn, week_start.isoformat()), settings, remaining, week_start,
-            rng=rng, exclude_ids={p["recipe_id"] for p in picks},
-        )
-        picks.extend(fill)
-
+    picks, planner_name, summary = _pick_meals(conn, settings, days, week_start, use_ai,
+                                               extra_request, rng)
     meals = [{"day": p["day"], "recipe_id": p["recipe_id"], "servings": servings} for p in picks]
     return db.create_plan(conn, week_start.isoformat(), meals, planner_name, summary)
+
+
+def regenerate(conn, plan_id: int, use_ai: bool | None = None, extra_request: str = "",
+               rng: random.Random | None = None) -> str:
+    """Re-plan every unlocked meal of a plan, keeping locked ones. Returns a message."""
+    plan = db.get_plan(conn, plan_id)
+    settings = db.get_settings(conn)
+    if use_ai is None:
+        use_ai = bool(settings.get("use_ai"))
+    locked = [m for m in plan["meals"] if m["locked"]]
+    unlocked = [m for m in plan["meals"] if not m["locked"]]
+    if not unlocked:
+        return "Every meal is locked — nothing to change."
+    week_start = dt.date.fromisoformat(plan["week_start"])
+    days = [m["day"] for m in unlocked]
+    current = {m["recipe_id"] for m in unlocked}
+    picks, planner_name, summary = _pick_meals(
+        conn, settings, days, week_start, use_ai, extra_request, rng,
+        keep=[m["recipe"] for m in locked],
+    )
+    # Prefer something different from what was there; fine if the library is small.
+    by_day = {p["day"]: p["recipe_id"] for p in picks}
+    for m in unlocked:
+        if m["day"] in by_day:
+            db.update_meal(conn, m["id"], recipe_id=by_day[m["day"]])
+    changed = sum(1 for m in unlocked if by_day.get(m["day"]) not in current)
+    return summary or f"Re-planned {changed} meal(s); kept {len(locked)} locked."
 
 
 def swap_meal(conn, meal_id: int, request: str = "", use_ai: bool | None = None,

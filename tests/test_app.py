@@ -161,3 +161,26 @@ def test_cook_view_scales_and_rates(client, app):
     client.post(f"/meals/{meal['id']}/feedback", data={"rating": "4", "again": "tweak", "notes": "more lime"})
     fb = db.recent_feedback(conn)[0]
     assert fb["rating"] == 4 and fb["make_again"] == "tweak" and fb["notes"] == "more lime"
+
+
+def test_lock_and_regenerate_routes(client, app):
+    pid = _plan(client)
+    conn = db.connect(app.config["DB_FILE"])
+    meal = db.get_plan(conn, pid)["meals"][0]
+    client.post(f"/meals/{meal['id']}/lock")
+    assert db.get_meal(conn, meal["id"])["locked"] == 1
+    assert client.post(f"/plans/{pid}/regenerate").status_code == 302
+    assert db.get_meal(conn, meal["id"])["recipe_id"] == meal["recipe_id"]
+    assert "🔒" in client.get(f"/plans/{pid}").get_data(as_text=True)
+
+
+def test_migration_adds_locked_column(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    c = sqlite3.connect(path)
+    c.executescript("CREATE TABLE plan_meals (id INTEGER PRIMARY KEY, plan_id INTEGER, day TEXT,"
+                    " recipe_id INTEGER, servings INTEGER, cooked INTEGER DEFAULT 0);")
+    c.commit(); c.close()
+    conn = db.connect(path)
+    db.init(conn)
+    assert "locked" in {r["name"] for r in conn.execute("PRAGMA table_info(plan_meals)")}

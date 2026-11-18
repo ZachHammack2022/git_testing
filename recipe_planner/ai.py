@@ -195,7 +195,7 @@ def _store_new_recipe(conn, recipe: dict) -> int:
 
 
 def plan_week(conn, settings: dict, days: list[str], week_start: dt.date,
-              extra_request: str = "") -> tuple[list[dict], str]:
+              extra_request: str = "", locked: list[str] | None = None) -> tuple[list[dict], str]:
     """Returns ([{day, recipe_id}], summary). Unknown ids and duplicate days are dropped."""
     ratio = float(settings.get("new_recipe_ratio") or 0.4)
     n_new = max(0, round(len(days) * ratio))
@@ -207,6 +207,9 @@ def plan_week(conn, settings: dict, days: list[str], week_start: dt.date,
         f"for the rest (favor high ratings; skip anything planned in the last two weeks unless it's a "
         f"standout favorite). New recipes should serve {settings.get('household_size')}."
     )
+    if locked:
+        prompt += (f"\nAlready fixed for other days this week (don't repeat them; keep the week "
+                   f"varied around them): {'; '.join(locked)}")
     if extra_request.strip():
         prompt += f"\nThis week's special request: {extra_request.strip()}"
 

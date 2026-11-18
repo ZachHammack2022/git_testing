@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS plan_meals (
     day TEXT NOT NULL,              -- Mon..Sun
     recipe_id INTEGER NOT NULL REFERENCES recipes(id),
     servings INTEGER NOT NULL,
-    cooked INTEGER DEFAULT 0
+    cooked INTEGER DEFAULT 0,
+    locked INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
@@ -106,8 +107,16 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a database was first created."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(plan_meals)")}
+    if "locked" not in cols:
+        conn.execute("ALTER TABLE plan_meals ADD COLUMN locked INTEGER DEFAULT 0")
+
+
 def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     if conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0] == 0:
         from .seed_recipes import SEED_RECIPES
 
@@ -310,7 +319,7 @@ def get_meal(conn, meal_id: int) -> dict | None:
 
 
 def update_meal(conn, meal_id: int, **fields) -> None:
-    allowed = {"recipe_id", "servings", "cooked", "day"}
+    allowed = {"recipe_id", "servings", "cooked", "day", "locked"}
     sets = [(k, v) for k, v in fields.items() if k in allowed]
     if not sets:
         return

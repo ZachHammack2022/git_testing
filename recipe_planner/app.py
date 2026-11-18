@@ -114,6 +114,24 @@ def create_app(db_file: str | None = None) -> Flask:
             db.add_meal(conn, plan_id, day, recipe_id, servings)
         return redirect(url_for("show_plan", plan_id=plan_id))
 
+    @app.post("/plans/<int:plan_id>/regenerate")
+    def regenerate_plan(plan_id):
+        conn = get_conn()
+        plan_or_404(plan_id)
+        msg = planner.regenerate(conn, plan_id, use_ai=request.form.get("use_ai") == "on",
+                                 extra_request=request.form.get("request", ""))
+        flash(msg, "info")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    @app.post("/meals/<int:meal_id>/lock")
+    def lock_meal(meal_id):
+        conn = get_conn()
+        meal = db.get_meal(conn, meal_id) or abort(404)
+        db.update_meal(conn, meal_id, locked=0 if meal["locked"] else 1)
+        if request.is_json:
+            return jsonify(locked=not meal["locked"])
+        return redirect(url_for("show_plan", plan_id=meal["plan_id"]) + f"#meal-{meal_id}")
+
     @app.post("/meals/<int:meal_id>/swap")
     def swap_meal(meal_id):
         conn = get_conn()

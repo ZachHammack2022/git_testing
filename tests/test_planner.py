@@ -72,3 +72,34 @@ def test_next_unplanned_week():
     assert planner.next_unplanned_week(None, today) == dt.date(2026, 11, 16)
     assert planner.next_unplanned_week("2026-11-16", today) == dt.date(2026, 11, 23)
     assert planner.next_unplanned_week("2026-01-05", today) == dt.date(2026, 11, 16)
+
+
+def test_regenerate_keeps_locked(conn):
+    pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=False, rng=random.Random(2))
+    meals = db.get_plan(conn, pid)["meals"]
+    db.update_meal(conn, meals[0]["id"], locked=1)
+    before = {m["id"]: m["recipe_id"] for m in meals}
+    msg = planner.regenerate(conn, pid, use_ai=False, rng=random.Random(99))
+    after = db.get_plan(conn, pid)["meals"]
+    assert {m["id"]: m["recipe_id"] for m in after}[meals[0]["id"]] == before[meals[0]["id"]]
+    assert len({m["recipe_id"] for m in after}) == len(after)
+    assert "kept 1 locked" in msg
+    for m in after:
+        db.update_meal(conn, m["id"], locked=1)
+    assert "nothing to change" in planner.regenerate(conn, pid, use_ai=False)
+
+
+def test_overlap_bonus_prefers_shared_produce():
+    base = {"cuisine": "", "protein": "", "prep_minutes": 20, "servings": 2, "steps": []}
+    fixed = dict(base, id=1, title="A", cuisine="x", protein="p1",
+                 ingredients=[{"name": "cilantro", "category": "produce"}, {"name": "lime", "category": "produce"}])
+    shares = dict(base, id=2, title="B", cuisine="y", protein="p2",
+                  ingredients=[{"name": "cilantro", "category": "produce"}, {"name": "limes", "category": "produce"}])
+    other = dict(base, id=3, title="C", cuisine="z", protein="p3",
+                 ingredients=[{"name": "kale", "category": "produce"}])
+    wins = 0
+    for seed in range(30):
+        pick = planner.heuristic_pick([shares, other], {}, {}, ["Tue"], dt.date(2026, 11, 23),
+                                      rng=random.Random(seed), already=[fixed])
+        wins += pick[0]["recipe_id"] == 2
+    assert wins > 18

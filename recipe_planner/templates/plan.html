@@ -12,6 +12,17 @@
   </div>
 </div>
 
+<details class="card">
+  <summary>Re-plan this week — keeps meals you've locked 🔒</summary>
+  <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="row">
+    {% if ai_available %}
+    <input type="text" name="request" placeholder="Optional: what should change?" style="flex:1; min-width:200px">
+    <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
+    {% endif %}
+    <button type="submit" onclick="this.textContent='Re-planning…'">Re-plan unlocked meals</button>
+  </form>
+</details>
+
 {% for m in plan.meals %}
 <div class="card meal" id="meal-{{ m.id }}">
   <div class="spread">
@@ -24,6 +35,7 @@
       {% if m.recipe.description %}<p class="small">{{ m.recipe.description }}</p>{% endif %}
     </div>
     <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
+      <button type="submit" formaction="{{ url_for('lock_meal', meal_id=m.id) }}" title="{{ 'Unlock' if m.locked else 'Lock: keep when re-planning' }}" aria-label="{{ 'Unlock' if m.locked else 'Lock' }}">{{ '🔒' if m.locked else '🔓' }}</button>
       <a class="btn" href="{{ url_for('cook', meal_id=m.id) }}">Cook</a>
       <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
     </form>
