@@ -17,9 +17,30 @@
   </div>
 </div>
 
+{% if order.status != 'placed' %}
+<div class="card" style="border-color: var(--accent)">
+  <div class="spread">
+    <div>
+      <h3 style="margin:0">Fill my cart automatically</h3>
+      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then the window shows your cart to review. It never checks out.</p>
+    </div>
+    {% if autofill_ready %}
+    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}">
+      <button class="primary" type="submit" id="autofill-btn" {{ 'disabled' if autofill_active }}>{{ 'Filling…' if autofill_active else 'Fill my cart' }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if not autofill_ready %}
+  <p class="small" style="margin-bottom:0">One-time setup: in a terminal in the app folder run<br>
+    <code>.venv/bin/pip install playwright &amp;&amp; .venv/bin/python -m playwright install chromium</code><br>then restart the app.</p>
+  {% endif %}
+  <div id="autofill-msg" class="flash" style="margin:10px 0 0; {{ '' if autofill.message else 'display:none' }}">{{ autofill.message }}</div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="spread small"><span id="count">{{ done }} / {{ total }} in cart</span>
-    {% if order.status != 'placed' %}<button type="button" class="primary" id="next-btn">Open next item ↗</button>{% endif %}
+    {% if order.status != 'placed' %}<button type="button" id="next-btn">Or add by hand: open next item ↗</button>{% endif %}
   </div>
   <div class="progress" style="margin-top:8px"><div id="bar" style="width: {{ (100 * done / total) if total else 0 }}%"></div></div>
   <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
@@ -78,13 +99,6 @@
 {% endif %}
 
 <details>
-  <summary>Experimental: fill the cart automatically</summary>
-  <p class="small">Run this in a terminal next to the app. It opens a browser where you sign in to Amazon once, then clicks "Add to cart" for each unticked item and ticks it off here. It never checks out.</p>
-  <pre class="list">python -m recipe_planner.autocart --order {{ order.id }}</pre>
-  <p class="muted small">Needs <code>pip install playwright &amp;&amp; python -m playwright install chromium</code>. Amazon's pages change, so check the cart before you check out.</p>
-</details>
-
-<details>
   <summary>Plain-text list</summary>
   <pre class="list" id="plain">{{ text }}</pre>
 </details>
@@ -116,5 +130,24 @@ if (nextBtn) nextBtn.addEventListener('click', () => {
   setAdded(li, true);
   li.scrollIntoView({block: 'center'});
 });
+// Live progress while the cart filler runs.
+async function pollAutofill() {
+  const res = await fetch(`/orders/${orderId}/autofill`);
+  if (!res.ok) return;
+  const d = await res.json();
+  const msg = document.getElementById('autofill-msg');
+  if (msg && d.status.message) { msg.style.display = ''; msg.textContent = d.status.message; }
+  const added = new Set(d.added);
+  document.querySelectorAll('ul.items li').forEach(li => {
+    const on = added.has(li.dataset.key);
+    li.classList.toggle('done', on);
+    li.querySelector('input.added').checked = on;
+  });
+  refresh();
+  const btn = document.getElementById('autofill-btn');
+  if (d.active) { setTimeout(pollAutofill, 2000); }
+  else if (btn && btn.disabled) { location.reload(); }  // finished: show learned products
+}
+{% if autofill_active %}pollAutofill();{% endif %}
 </script>
 {% endblock %}

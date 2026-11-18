@@ -46,3 +46,34 @@ def test_try_add():
     assert autocart._try_add(page) and page.role.clicked
     assert not autocart._try_add(FakePage(False))
     assert autocart.ADD_BUTTON.match("Add to Cart") and not autocart.ADD_BUTTON.match("Add to List")
+
+
+def test_whole_foods_product_url():
+    from recipe_planner.ordering import whole_foods_product_url as f
+    wf = "?almBrandId=VUZHIFdob2xlIEZvb2Rz&fpw=alm"
+    assert f("https://www.amazon.com/Lime-Regular/dp/B07811WM8Z/ref=sr_1_1?x=1") == "https://www.amazon.com/dp/B07811WM8Z" + wf
+    assert f("https://www.amazon.com/gp/product/b000nogkn4") == "https://www.amazon.com/dp/B000NOGKN4" + wf
+    assert f("B000NOGKN4") == "https://www.amazon.com/dp/B000NOGKN4" + wf
+    assert f("https://a.co/d/abc") == "https://a.co/d/abc"
+
+
+def test_autofill_routes(client, app, monkeypatch):
+    import re
+    r = client.post("/plans", data={"week_start": "2026-11-23"})
+    pid = int(re.search(r"/plans/(\d+)", r.headers["Location"]).group(1))
+    oid = int(client.post(f"/plans/{pid}/order").headers["Location"].rsplit("/", 1)[1])
+
+    monkeypatch.setattr(autocart, "playwright_available", lambda: False)
+    page = client.post(f"/orders/{oid}/autofill", follow_redirects=True).get_data(as_text=True)
+    assert "needs Playwright" in page
+
+    started = {}
+    monkeypatch.setattr(autocart, "playwright_available", lambda: True)
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.setdefault("args", args))
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    client.post(f"/orders/{oid}/autofill")
+    assert started["args"][-3:] == ["--order", str(oid), "--no-prompt"]
+    st = client.get(f"/orders/{oid}/autofill").get_json()
+    assert st["status"]["state"] == "starting" and st["added"] == []
+    assert "Filling…" in client.get(f"/orders/{oid}").get_data(as_text=True)

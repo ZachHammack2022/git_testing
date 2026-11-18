@@ -3,9 +3,11 @@ cart fast: one consolidated list, a direct link per item (your saved product if 
 otherwise a Whole Foods search), progress tracking, and a record of what was ordered."""
 from __future__ import annotations
 
+import re
 from urllib.parse import quote_plus
 
-WHOLE_FOODS_STOREFRONT = "https://www.amazon.com/alm/storefront?almBrandId=VUZHIFdob2xlIEZvb2Rz"
+WHOLE_FOODS_BRAND = "VUZHIFdob2xlIEZvb2Rz"  # Amazon's store id for Whole Foods
+WHOLE_FOODS_STOREFRONT = f"https://www.amazon.com/alm/storefront?almBrandId={WHOLE_FOODS_BRAND}"
 AMAZON_CART = "https://www.amazon.com/gp/cart/view.html"
 
 # Words that hurt search results more than they help.
@@ -17,6 +19,22 @@ def search_term(name: str) -> str:
     for w in _SEARCH_STRIP:
         term = term.replace(w, "")
     return term.strip()
+
+
+_ASIN = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})", re.I)
+
+
+def whole_foods_product_url(url_or_asin: str) -> str:
+    """Product link that opens the Whole Foods offer, not Amazon's default seller.
+
+    Without the store parameter a product page can show a different seller (e.g. Amazon
+    Now / Amazon Fresh), and "Add to cart" then goes to that store's cart."""
+    s = (url_or_asin or "").strip()
+    m = _ASIN.search(s)
+    asin = m.group(1) if m else (s if re.fullmatch(r"[A-Z0-9]{10}", s, re.I) else None)
+    if not asin:
+        return s  # short links (a.co) and anything else: leave as given
+    return f"https://www.amazon.com/dp/{asin.upper()}?almBrandId={WHOLE_FOODS_BRAND}&fpw=alm"
 
 
 def whole_foods_search_url(name: str) -> str:
@@ -36,7 +54,7 @@ def order_items(shopping_items: list[dict], picks: dict[str, dict]) -> list[dict
             "amount": it["amount"],
             "category": it["category"],
             "recipes": it["recipes"],
-            "url": pick["url"] if pick else whole_foods_search_url(it["name"]),
+            "url": whole_foods_product_url(pick["url"]) if pick else whole_foods_search_url(it["name"]),
             "has_pick": bool(pick),
             "pick_label": pick.get("label", "") if pick else "",
             "added": False,
@@ -48,7 +66,7 @@ def refresh_links(items: list[dict], picks: dict[str, dict]) -> list[dict]:
     """Re-apply saved product picks to an existing order (e.g. after saving a new pick)."""
     for it in items:
         pick = picks.get(it["key"])
-        it["url"] = pick["url"] if pick else whole_foods_search_url(it["name"])
+        it["url"] = whole_foods_product_url(pick["url"]) if pick else whole_foods_search_url(it["name"])
         it["has_pick"] = bool(pick)
         it["pick_label"] = pick.get("label", "") if pick else ""
     return items
@@ -71,7 +89,7 @@ def extra_item(line: str, picks: dict[str, dict], source: str = "extra") -> dict
         "amount": amount,
         "category": cat if cat in CATEGORIES else "other",
         "recipes": [source],
-        "url": pick["url"] if pick else whole_foods_search_url(parsed["name"]),
+        "url": whole_foods_product_url(pick["url"]) if pick else whole_foods_search_url(parsed["name"]),
         "has_pick": bool(pick),
         "pick_label": pick.get("label", "") if pick else "",
         "added": False,

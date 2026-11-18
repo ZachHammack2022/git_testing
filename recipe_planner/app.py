@@ -10,7 +10,7 @@ import secrets
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, url_for)
 
-from . import ai, db, grocery, importer, ordering, planner
+from . import ai, autocart, db, grocery, importer, ordering, planner
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -282,8 +282,11 @@ def create_app(db_file: str | None = None) -> Flask:
         order = db.get_order(conn, order_id) or abort(404)
         groups = grocery.group_by_category(order["items"])
         plan = db.get_plan(conn, order["plan_id"]) if order["plan_id"] else None
+        st = autocart.read_status(order_id) or {}
         return render_template("order.html", order=order, groups=groups, plan=plan,
-                               text=grocery.as_text(order["items"]))
+                               text=grocery.as_text(order["items"]), autofill=st,
+                               autofill_active=st.get("state") in ("starting", "waiting", "running"),
+                               autofill_ready=autocart.playwright_available())
 
     @app.post("/orders/<int:order_id>/items/<path:key>")
     def toggle_order_item(order_id, key):
@@ -316,6 +319,40 @@ def create_app(db_file: str | None = None) -> Flask:
         order = db.get_order(conn, order_id) or abort(404)
         db.save_order_items(conn, order_id, [i for i in order["items"] if i["key"] != key])
         return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/autofill")
+    def start_autofill(order_id):
+        import subprocess
+        import sys
+
+        conn = get_conn()
+        db.get_order(conn, order_id) or abort(404)
+        if not autocart.playwright_available():
+            flash("Filling the cart needs Playwright. In a terminal, in the app folder, run: "
+                  ".venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium "
+                  "— then restart the app.", "error")
+            return redirect(url_for("show_order", order_id=order_id))
+        if not autocart.is_running(order_id):
+            autocart.status_path(order_id).unlink(missing_ok=True)
+            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
+            log = open(autocart.status_path(order_id).with_suffix(".log"), "w")
+            subprocess.Popen([sys.executable, "-m", "recipe_planner.autocart", "--order",
+                              str(order_id), "--no-prompt"], env=env, stdout=log,
+                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            autocart.write_status(order_id, state="starting", message="Opening a browser window…")
+        return redirect(url_for("show_order", order_id=order_id))
+
+    @app.get("/orders/<int:order_id>/autofill")
+    def autofill_status(order_id):
+        conn = get_conn()
+        order = db.get_order(conn, order_id) or abort(404)
+        st = autocart.read_status(order_id) or {}
+        active = st.get("state") in ("starting", "waiting", "running")
+        if active and st.get("pid") and not autocart.is_running(order_id):
+            st, active = dict(st, state="error", message="The cart filler stopped unexpectedly."), False
+        return jsonify(status=st, active=active,
+                       added=[i["key"] for i in order["items"] if i.get("added")],
+                       picks={i["key"]: i.get("pick_label", "") for i in order["items"] if i.get("has_pick")})
 
     @app.post("/orders/<int:order_id>/placed")
     def order_placed(order_id):
