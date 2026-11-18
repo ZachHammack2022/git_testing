@@ -12,7 +12,7 @@
   </div>
 </div>
 
-<details class="card">
+<details class="card" style="margin-top:14px">
   <summary>Re-plan this week — keeps meals you've locked 🔒</summary>
   <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="row">
     <input type="text" name="use_up" placeholder="Use up: spinach, feta…" style="flex:1; min-width:160px">
@@ -44,9 +44,13 @@
   <details>
     <summary>Swap or change</summary>
     <form method="post" action="{{ url_for('swap_meal', meal_id=m.id) }}" class="row">
-      <input type="text" name="request" placeholder="{{ 'Optional: what do you feel like? e.g. something lighter' if ai_available else 'Pick a different recipe automatically' }}" style="flex:1; min-width:200px" {{ '' if ai_available else 'disabled' }}>
-      {% if ai_available %}<label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>{% endif %}
+      {% if ai_available %}
+      <input type="text" name="request" placeholder="Optional: what do you feel like? e.g. something lighter" style="flex:1; min-width:200px">
+      <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
       <button type="submit" onclick="this.textContent='Swapping…'">Swap</button>
+      {% else %}
+      <button type="submit">Swap for another recipe</button>
+      {% endif %}
     </form>
     <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row" style="margin-top:8px">
       <select name="recipe_id" style="flex:1; min-width:200px">
