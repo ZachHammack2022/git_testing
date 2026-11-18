@@ -11,7 +11,7 @@ to Amazon once and stay signed in. For each unticked item it opens the item's li
 product, or a Whole Foods search where it takes the first non-sponsored result. Added items are
 ticked in the app, and the product it chose is remembered for next time (change it on the order
 page if it guessed wrong). Sign-in pages and "type the characters" checks pause it until you've
-dealt with them in the window.
+dealt with them in the window. It never clicks through Amazon's checks itself.
 
 It never checks out. It adds one of each item, so review quantities in the cart.
 Amazon changes its pages often, so this is a helper, not a guarantee.
@@ -120,27 +120,8 @@ def _try_add(page, scope=None) -> bool:
     return False
 
 
-CONTINUE = re.compile(r"^\s*continue shopping\s*$", re.I)
-
-
 def _is_interstitial(url: str) -> bool:
     return "/checkpoint/" in url or "validateCaptcha" in url or "/errors/" in url
-
-
-def pass_soft_check(page) -> bool:
-    """Amazon sometimes shows a 'click Continue shopping' interstitial. Click it if that's
-    all it asks. Returns True if one was handled."""
-    if not _is_interstitial(page.url or ""):
-        return False
-    btn = page.get_by_role("button", name=CONTINUE)
-    if not _visible(btn):
-        btn = page.get_by_role("link", name=CONTINUE)
-    if _visible(btn) and not _visible(page.locator("#captchacharacters")):
-        btn.first.click()
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(1500)
-        return True
-    return False
 
 
 def needs_human(page) -> bool:
@@ -152,11 +133,8 @@ def needs_human(page) -> bool:
 
 
 def settle(page, say) -> bool:
-    """After a navigation: get past soft checks, or wait for the person. False = gave up."""
-    for _ in range(2):
-        if pass_soft_check(page):
-            continue
-        break
+    """After a navigation: if Amazon shows a sign-in page or any bot check, hand over to the
+    person and wait. We never click through Amazon's checks ourselves. False = gave up."""
     return not needs_human(page) or wait_for_human(page, say)
 
 

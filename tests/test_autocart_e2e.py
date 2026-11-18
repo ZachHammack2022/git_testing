@@ -46,13 +46,20 @@ class Fake(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         elif u.path.startswith("/checkpoint/"):
+            # The helper must NOT click through this itself; it waits for the person. Here the
+            # "person" finishes the check after a few seconds (simulated with a meta refresh).
             nxt = parse_qs(u.query)["next"][0]
-            body = f"<p>To continue, please click the button below.</p><a href='{nxt}'><button>Continue shopping</button></a>"
+            CLICKS.append("checkpoint-shown")
+            body = (f"<meta http-equiv='refresh' content='4;url={nxt}'>"
+                    f"<p>To continue, please click the button below.</p><a href='/never'><button>Continue shopping</button></a>")
         elif u.path == "/s":
             body = search_page(parse_qs(u.query)["k"][0])
         elif u.path.startswith("/dp/"):
             asin = u.path.split("/")[-1]
             body = f"<button id='add-to-cart-button' onclick=\"fetch('/added?asin={asin}')\">Add to Cart</button>"
+        elif u.path == "/never":
+            CLICKS.append("auto-clicked-checkpoint")
+            body = HOME
         else:
             body = HOME
         data = f"<html><body>{body}</body></html>".encode()
@@ -85,6 +92,7 @@ def test_fill_cart_end_to_end(tmp_path, monkeypatch):
                             profile_dir=str(tmp_path / "profile"))
     srv.shutdown()
     assert rc == 0
+    assert "checkpoint-shown" in CLICKS and "auto-clicked-checkpoint" not in CLICKS
     assert "B0SPONSORX" not in CLICKS                      # skipped the sponsored result
     assert {"B0AVOCADOX", "B0LIMEXXXX", "B0HONEY", "B0EGGXXXXX"} <= set(CLICKS)
     order = db.get_order(conn, oid)

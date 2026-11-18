@@ -73,11 +73,28 @@ Amazon has no public API for placing Whole Foods orders, so the app can't check 
 
 You choose the delivery window and pay on Amazon as usual.
 
-**Experimental: auto-fill the cart.** `python -m recipe_planner.autocart` opens a real browser with its own profile, so you sign in to Amazon once. It then tries to click "Add to cart" for each unticked item on your latest open order, ticks off the ones it adds in the app, and stops at your cart. You review quantities and check out yourself.
+### Fill my cart automatically
 
-- It needs Playwright: `pip install playwright && python -m playwright install chromium`.
-- It depends on Amazon's page layout, so anything it can't add is listed for you to do by hand.
-- On a search page it adds the first result. Saved product links make it more accurate.
+On the order page, **Fill my cart** opens a browser window and adds each item to your Amazon cart. The order page ticks items off as it goes. When it's done, the window shows your cart so you can review it and change anything you want before checking out.
+
+One-time setup:
+
+```bash
+.venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium
+```
+
+How it works:
+
+- **Sign-in:** the first time, it waits while you sign in to Amazon in that window. The browser profile is kept in `instance/browser-profile`, so you stay signed in after that.
+- **Product choice:** for items with a saved product, it goes straight to that product. Otherwise it searches Whole Foods and takes the first result that isn't sponsored.
+- **It learns:** whatever it picks is saved as that ingredient's product, so next week it skips the search. If it picked wrong, change the product on the order page once.
+- **Whole Foods offer:** product links include Amazon's Whole Foods store parameter. Without it, a product page can show a different seller (for example Amazon Now), whose "Add to cart" goes to a different cart.
+- **Bot checks:** if Amazon shows a sign-in page or an "are you human" check, it stops and waits for you to deal with it in the window. It never clicks through Amazon's checks itself.
+- **Quantities:** it adds one of each item, so adjust quantities in the cart.
+- **It never checks out.**
+- **Limits:** it depends on Amazon's page layout. Anything it couldn't add is listed so you can add it by hand.
+
+You can also run it from a terminal with `python -m recipe_planner.autocart`.
 
 ## How feedback changes the plan
 
