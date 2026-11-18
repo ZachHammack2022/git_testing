@@ -37,7 +37,8 @@ def create_app(db_file: str | None = None) -> Flask:
     @app.template_filter("pretty_date")
     def _pretty_date(s):
         try:
-            return dt.date.fromisoformat(s[:10]).strftime("%b %-d, %Y")
+            d = dt.date.fromisoformat(s[:10])
+            return f"{d:%b} {d.day}, {d.year}"  # no %-d: it isn't portable to Windows
         except (TypeError, ValueError):
             return s
 

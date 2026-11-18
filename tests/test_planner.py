@@ -130,3 +130,12 @@ def test_use_up_prefers_matching_recipes(conn):
         names = " ".join(i["name"] for m in db.get_plan(conn, pid)["meals"] for i in m["recipe"]["ingredients"])
         hits += "coconut milk" in names
     assert hits >= 9
+
+
+def test_changing_never_again_unretires(conn):
+    pid = db.create_plan(conn, "2026-01-05", [{"day": "Mon", "recipe_id": 1, "servings": 2}], "heuristic")
+    mid = db.get_plan(conn, pid)["meals"][0]["id"]
+    db.save_feedback(conn, mid, 1, 1, "no", "")
+    assert db.get_recipe(conn, 1)["archived"] == 1
+    db.save_feedback(conn, mid, 1, 4, "yes", "actually fine")
+    assert db.get_recipe(conn, 1)["archived"] == 0

@@ -366,6 +366,17 @@ def add_meal(conn, plan_id: int, day: str, recipe_id: int, servings: int) -> int
 # ---------- feedback ----------
 
 def save_feedback(conn, plan_meal_id: int, recipe_id: int, rating: int, make_again: str, notes: str):
+    prev = conn.execute(
+        "SELECT make_again FROM feedback WHERE plan_meal_id=?", (plan_meal_id,)
+    ).fetchone()
+    if prev and prev["make_again"] == "no" and make_again != "no":
+        # Changed their mind: bring the recipe back unless another rating also said "never".
+        others = conn.execute(
+            "SELECT COUNT(*) FROM feedback WHERE recipe_id=? AND make_again='no' AND plan_meal_id!=?",
+            (recipe_id, plan_meal_id),
+        ).fetchone()[0]
+        if not others:
+            conn.execute("UPDATE recipes SET archived=0 WHERE id=?", (recipe_id,))
     conn.execute("DELETE FROM feedback WHERE plan_meal_id=?", (plan_meal_id,))
     conn.execute(
         "INSERT INTO feedback(recipe_id, plan_meal_id, rating, make_again, notes) VALUES (?,?,?,?,?)",
