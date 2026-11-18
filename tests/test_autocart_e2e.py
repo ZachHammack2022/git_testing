@@ -92,6 +92,7 @@ def fake_amazon(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOCART_BROWSER", BROWSERS[0] if BROWSERS else "")
     monkeypatch.setattr(autocart, "AMAZON_HOME", base + "/")
     monkeypatch.setattr(autocart, "CART_URL", base + "/cart")
+    monkeypatch.setattr(autocart, "PAUSE_BETWEEN_ITEMS", (0.1, 0.2))
     yield base
     srv.shutdown()
 
@@ -161,9 +162,19 @@ def test_stops_early_with_screenshots_when_nothing_adds(fake_amazon, tmp_path):
     assert (autocart.debug_dir(oid) / st["screenshots"]["kale"]).is_file()
 
 
+STATES_SEEN = set()
+
+
 @pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
-def test_fill_cart_end_to_end(fake_amazon, tmp_path):
+def test_fill_cart_end_to_end(fake_amazon, tmp_path, monkeypatch):
     base = fake_amazon
+    real_write = autocart.write_status
+
+    def spy(order_id, **fields):
+        if "state" in fields:
+            STATES_SEEN.add(fields["state"])
+        real_write(order_id, **fields)
+    monkeypatch.setattr(autocart, "write_status", spy)
 
     conn = db.connect()
     db.init(conn)
@@ -178,6 +189,7 @@ def test_fill_cart_end_to_end(fake_amazon, tmp_path):
                             profile_dir=str(tmp_path / "profile"))
     assert rc == 0
     assert "checkpoint-shown" in CLICKS and "auto-clicked-checkpoint" not in CLICKS
+    assert "human" in STATES_SEEN
     assert "B0SPONSORX" not in CLICKS                      # skipped the sponsored result
     assert {"B0AVOCADOX", "B0LIMEXXXX", "B0HONEY", "B0EGGXXXXX"} <= set(CLICKS)
     order = db.get_order(conn, oid)
@@ -188,3 +200,4 @@ def test_fill_cart_end_to_end(fake_amazon, tmp_path):
     assert "/dp/B0LIMEXXXX?almBrandId=" in picks["lime"]["url"]
     st = autocart.read_status(oid)
     assert st["state"] == "done" and st["skipped"] == ["nothing"]
+    assert st["added"] == 4 and st["total"] == 5 and "ready for review" in st["message"]

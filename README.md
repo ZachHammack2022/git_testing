@@ -89,7 +89,8 @@ How it works:
 - **Product choice:** for items with a saved product, it goes straight to that product. Otherwise it searches Whole Foods and takes the first result that isn't sponsored.
 - **It learns:** whatever it picks is saved as that ingredient's product, so next week it skips the search. If it picked wrong, change the product on the order page once.
 - **Whole Foods offer:** product links include Amazon's Whole Foods store parameter. Without it, a product page can show a different seller (for example Amazon Now), whose "Add to cart" goes to a different cart.
-- **Bot checks:** if Amazon shows a sign-in page or an "are you human" check, it stops and waits for you to deal with it in the window. It never clicks through Amazon's checks itself.
+- **Bot checks:** if Amazon shows a sign-in page or an "are you human" check, the browser window comes to the front. The order page shows a pulsing "✋ Needs you" alert, the tab title changes, and you get a desktop notification if you allowed them. Click the button in the window and it continues by itself. It never clicks through these checks itself: they exist to stop automation, and getting around them could get your Amazon account flagged. It also leaves a few seconds between items, which makes checks rarer.
+- **When it's done:** the order page shows a "🛒 Your cart is ready for review" card with a **Review cart on Amazon** button. It lists anything you need to add yourself, with links, and you get a notification.
 - **Quantities:** it adds one of each item, so adjust quantities in the cart.
 - **It never checks out.**
 - **Limits:** it depends on Amazon's page layout. Anything it couldn't add is listed so you can add it by hand.

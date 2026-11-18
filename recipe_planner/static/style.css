@@ -66,3 +66,9 @@ ol.steps li { margin-bottom: 6px; }
   a { color: #000; text-decoration: none; }
   main { padding: 0; }
 }
+
+.card.ready { border: 2px solid var(--accent); background: var(--soft); }
+.card.attention { border: 2px solid #e0a526 !important; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(224,165,38,.0); } 50% { box-shadow: 0 0 0 6px rgba(224,165,38,.25); } }
+@media (prefers-reduced-motion: reduce) { .card.attention { animation: none; } }
+.btn.big { font-size: 1.05rem; padding: 11px 18px; }

@@ -98,3 +98,26 @@ def test_go_override_and_screenshot_route(client, app, monkeypatch, tmp_path):
     (d / "kale.png").write_bytes(b"\x89PNG fake")
     assert client.get(f"/orders/{oid}/autofill/shot/kale.png").status_code == 200
     assert client.get(f"/orders/{oid}/autofill/shot/..%2Fsecret.png").status_code == 404
+
+
+def test_order_page_states(client, app, monkeypatch):
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    conn = db.connect(app.config["DB_FILE"])
+    items = [{"key": k, "name": k, "amount": "1", "category": "produce", "recipes": [],
+              "url": f"https://www.amazon.com/s?k={k}", "has_pick": False, "pick_label": "", "added": k != "kale"}
+             for k in ["avocado", "kale"]]
+    oid = db.create_order(conn, None, items)
+
+    autocart.write_status(oid, state="human", pid=None, message="Amazon is asking you to confirm you're human.")
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert "✋ Needs you" in page and "card attention" in page
+
+    autocart.write_status(oid, state="done", added=1, total=2, skipped=["kale"],
+                          screenshots={"kale": "kale.png"}, message="Your cart is ready for review")
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert "Your cart is ready for review" in page and "Review cart on Amazon" in page
+    assert "Add these yourself (1)" in page and "s?k=kale" in page and "what I saw" in page
+    assert "Fill my cart automatically" not in page
+
+    db.mark_order_placed(conn, oid)
+    assert "Review cart on Amazon" not in client.get(f"/orders/{oid}").get_data(as_text=True)

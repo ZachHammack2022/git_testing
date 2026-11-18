@@ -18,14 +18,46 @@
 </div>
 
 {% if order.status != 'placed' %}
-<div class="card" style="border-color: var(--accent)">
+{% set af_done = autofill.state == 'done' %}
+{% set skipped_items = order['items']|selectattr('name', 'in', autofill.skipped or [])|list %}
+
+{% if af_done %}
+<div class="card ready" id="ready-card">
   <div class="spread">
     <div>
-      <h3 style="margin:0">Fill my cart automatically</h3>
-      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then the window shows your cart to review. It never checks out.</p>
+      <div class="day">🛒 Cart ready</div>
+      <h2 style="margin:2px 0 4px">Your cart is ready for review</h2>
+      <p class="small" style="margin:0">Added <strong>{{ autofill.added }} of {{ autofill.total }}</strong> items. Check sizes and quantities (it adds one of each), swap anything you want, then pick a delivery window and check out.</p>
+    </div>
+    <a class="btn primary big" href="{{ AMAZON_CART }}" target="_blank" rel="noopener">Review cart on Amazon ↗</a>
+  </div>
+  {% if skipped_items %}
+  <div style="margin-top:12px">
+    <strong class="small">Add these yourself ({{ skipped_items|length }}):</strong>
+    <ul class="items small">
+      {% for it in skipped_items %}
+      <li><a href="{{ it.url }}" target="_blank" rel="noopener" style="flex:1">{{ it.name }}{% if it.amount %} — {{ it.amount }}{% endif %} ↗</a>
+        {% if autofill.screenshots and autofill.screenshots.get(it.name) %}<a class="muted" href="{{ url_for('autofill_shot', order_id=order.id, name=autofill.screenshots[it.name]) }}" target="_blank">what I saw</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <div class="row small" style="margin-top:12px">
+    <a href="#placed-form">Checked out? Mark the order placed ↓</a>
+    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}" style="margin-left:auto">
+      <button type="submit" class="link small">Run the cart filler again</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card {{ 'attention' if autofill.state == 'human' }}" id="autofill-card" style="border-color: var(--accent)">
+  <div class="spread">
+    <div>
+      <h3 style="margin:0" id="autofill-title">{{ '✋ Needs you' if autofill.state == 'human' else 'Fill my cart automatically' }}</h3>
+      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then you get a "cart ready" summary. It never checks out.</p>
     </div>
     {% if autofill_ready %}
-    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}">
+    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}" id="autofill-form">
       <button class="primary" type="submit" id="autofill-btn" {{ 'disabled' if autofill_active }}>{{ 'Filling…' if autofill_active else 'Fill my cart' }}</button>
     </form>
     {% endif %}
@@ -50,6 +82,7 @@
   </details>
   {% endif %}
 </div>
+{% endif %}
 {% endif %}
 
 <div class="card">
@@ -97,7 +130,7 @@
 </form>
 
 {% if order.status != 'placed' %}
-<form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card">
+<form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card" id="placed-form">
   <h3>Done?</h3>
   <p class="muted small">Check out on Amazon (choose your Whole Foods delivery window), then mark the order placed here.</p>
   <div class="row">
@@ -138,34 +171,59 @@ document.querySelectorAll('input.added').forEach(cb =>
   cb.addEventListener('change', () => setAdded(cb.closest('li'), cb.checked)));
 const nextBtn = document.getElementById('next-btn');
 if (nextBtn) nextBtn.addEventListener('click', () => {
-  const li = [...document.querySelectorAll('ul.items li')].find(l => !l.querySelector('input.added').checked);
+  const li = [...document.querySelectorAll('ul.items li[data-key]')].find(l => !l.querySelector('input.added').checked);
   if (!li) { nextBtn.textContent = 'All done ✓'; return; }
   window.open(li.dataset.url, '_blank', 'noopener');
   setAdded(li, true);
   li.scrollIntoView({block: 'center'});
 });
 // Live progress while the cart filler runs.
+const baseTitle = document.title;
+let lastState = {{ (autofill.state or '')|tojson }};
+function notify(title, body) {
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') new Notification(title, {body});
+  } catch (e) {}
+}
+const afForm = document.getElementById('autofill-form');
+if (afForm && 'Notification' in window && Notification.permission === 'default') {
+  // Ask once, on the click that starts the run, so we can ping you when it needs you / finishes.
+  afForm.addEventListener('submit', () => { try { Notification.requestPermission(); } catch (e) {} });
+}
 async function pollAutofill() {
-  const res = await fetch(`/orders/${orderId}/autofill`);
-  if (!res.ok) return;
-  const d = await res.json();
+  let d;
+  try {
+    const res = await fetch(`/orders/${orderId}/autofill`);
+    if (!res.ok) throw new Error();
+    d = await res.json();
+  } catch (e) { setTimeout(pollAutofill, 4000); return; }
+  const st = d.status || {};
   const msg = document.getElementById('autofill-msg');
-  if (msg && d.status.message) {
-    msg.style.display = ''; msg.textContent = d.status.message;
-    msg.classList.toggle('error', d.status.state === 'error');
+  if (msg && st.message) {
+    msg.style.display = ''; msg.textContent = st.message;
+    msg.classList.toggle('error', st.state === 'error');
   }
   const go = document.getElementById('go-form');
-  if (go) go.style.display = d.status.state === 'signin' ? '' : 'none';
+  if (go) go.style.display = st.state === 'signin' ? '' : 'none';
+  const card = document.getElementById('autofill-card');
+  const title = document.getElementById('autofill-title');
+  const needsYou = st.state === 'human' || st.state === 'signin';
+  if (card) card.classList.toggle('attention', needsYou);
+  if (title) title.textContent = st.state === 'human' ? '✋ Needs you' : (st.state === 'signin' ? '✋ Sign in to Amazon' : 'Filling your cart…');
+  document.title = needsYou ? '✋ Needs you — ' + baseTitle : (d.active ? `${(d.added || []).length}/${total} · ${baseTitle}` : baseTitle);
+  if (needsYou && lastState !== st.state) notify('Meal Planner needs you', st.message || 'Check the browser window.');
+  if (st.state === 'done' && lastState !== 'done') notify('🛒 Your cart is ready for review', st.message || '');
+  lastState = st.state;
+
   const added = new Set(d.added);
-  document.querySelectorAll('ul.items li').forEach(li => {
+  document.querySelectorAll('ul.items li[data-key]').forEach(li => {
     const on = added.has(li.dataset.key);
     li.classList.toggle('done', on);
     li.querySelector('input.added').checked = on;
   });
   refresh();
-  const btn = document.getElementById('autofill-btn');
-  if (d.active) { setTimeout(pollAutofill, 2000); }
-  else if (btn && btn.disabled) { location.reload(); }  // finished: show learned products
+  if (d.active) { setTimeout(pollAutofill, 1500); }
+  else { location.reload(); }  // finished or stopped: show the summary and learned products
 }
 {% if autofill_active %}pollAutofill();{% endif %}
 </script>

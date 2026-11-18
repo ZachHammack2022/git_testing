@@ -34,7 +34,8 @@ ADD_BUTTON = re.compile(r"^\s*add(\s+to\s+cart)?\s*$|^\s*add\b.*\bto\s+(your\s+)
 GREETINGS = ["#nav-link-accountList-nav-line-1", "#nav-link-accountList .nav-line-1",
              "#glow-ingress-line1", "#nav-greeting-name"]
 FAIL_STREAK_PAUSE = 3
-ACTIVE_STATES = ("starting", "signin", "waiting", "running")
+ACTIVE_STATES = ("starting", "signin", "human", "waiting", "running")
+PAUSE_BETWEEN_ITEMS = (2.5, 5.0)  # seconds; a human-ish pace makes Amazon's checks rarer
 AMAZON_HOME = os.environ.get("AUTOCART_HOME", "https://www.amazon.com/")
 CART_URL = os.environ.get("AUTOCART_CART", ordering.AMAZON_CART)
 RESULT_CARDS = '[data-component-type="s-search-result"]'
@@ -178,12 +179,25 @@ def is_signed_in(page) -> bool | None:
 
 
 def wait_for_human(page, say, timeout: float = 600) -> bool:
-    say("waiting", "Over to you: sign in or finish the check in the browser window. "
-        "I'll continue automatically.")
+    """Hand over to the person for a sign-in page or an Amazon "are you human" check.
+
+    We deliberately never click through these checks ourselves: they exist to stop
+    automation, and getting around them could get the Amazon account flagged. Instead the
+    window comes to the front, the order page alerts you, and we continue the moment it clears.
+    """
+    signin = "/ap/signin" in (page.url or "")
+    try:
+        page.bring_to_front()
+    except Exception:
+        pass
+    say("human", "Amazon wants you to sign in again." if signin else
+        "Amazon is asking you to confirm you're human. Click the button in the browser window "
+        "and I'll pick up where I left off.", needs="signin" if signin else "check")
     end = time.time() + timeout
     while time.time() < end:
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1500)
         if not needs_human(page):
+            say("running", "Thanks! Continuing…", needs="")
             return True
     return False
 
@@ -349,13 +363,16 @@ def fill_cart(order_id: int | None = None, interactive: bool = True, learn: bool
                             pass
                     ctx.close()
                     return 1
-                page.wait_for_timeout(int(random.uniform(1500, 3500)))  # be gentle
+                page.wait_for_timeout(int(random.uniform(*PAUSE_BETWEEN_ITEMS) * 1000))
 
             page.goto(CART_URL, wait_until="domcontentloaded")
-            msg = f"Done: added {added} of {len(todo)}. Review your cart in the browser window."
-            if skipped:
-                msg += " Add these by hand: " + ", ".join(skipped) + "."
-            say("done", msg, current="", added=added, skipped=skipped)
+            try:
+                page.bring_to_front()
+            except Exception:
+                pass
+            msg = f"Your cart is ready for review: added {added} of {len(todo)} items."
+            say("done", msg, current="", added=added, total=len(todo), skipped=skipped,
+                finished=time.time())
             if interactive:
                 input("Press Enter to close the browser... ")
             elif stay_open:
