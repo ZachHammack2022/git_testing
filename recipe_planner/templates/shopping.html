@@ -27,6 +27,14 @@
     </ul>
   </div>
   {% endfor %}
+  {% if always_buy %}
+  <div class="card">
+    <h3>Always buy</h3>
+    <p class="small">{{ always_buy|join(' · ') }}</p>
+    <label class="inline small"><input type="hidden" name="include_always" value="off"><input type="checkbox" name="include_always" value="on" checked> Add these to the order</label>
+    <a class="small" href="{{ url_for('settings') }}">edit</a>
+  </div>
+  {% endif %}
   <p><label class="inline small"><input type="checkbox" name="remember_pantry"> Remember unchecked items as pantry staples (skip them in future lists)</label></p>
   <input type="hidden" name="buy" value="">
   <div id="hidden-fields"></div>

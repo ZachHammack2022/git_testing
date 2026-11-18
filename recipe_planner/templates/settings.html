@@ -41,6 +41,11 @@
     <p class="muted small">Things you always have. They're left off orders by default.</p>
     <textarea name="pantry">{{ pantry|join(', ') }}</textarea>
   </div>
+  <div class="card">
+    <h3>Always buy</h3>
+    <p class="muted small">Groceries you get every week regardless of recipes — one per line, e.g. "1 gallon whole milk", "2 lb bananas", "coffee beans". Added to each new order.</p>
+    <textarea name="always_buy" rows="5">{{ s.always_buy }}</textarea>
+  </div>
   <button class="primary" type="submit">Save settings</button>
 </form>
 

@@ -128,3 +128,23 @@ def test_remember_pantry(client, app):
     client.post(f"/plans/{pid}/order", data={"buy": ["", items[0]["key"]], "remember_pantry": "on"})
     pantry = set(db.pantry(conn))
     assert items[1]["key"] in pantry and items[0]["key"] not in pantry
+
+
+def test_always_buy_and_extras(client, app):
+    conn = db.connect(app.config["DB_FILE"])
+    db.save_settings(conn, {"always_buy": "1 gallon whole milk\n2 lb bananas"})
+    pid = _plan(client)
+    oid = int(client.post(f"/plans/{pid}/order").headers["Location"].rsplit("/", 1)[1])
+    items = {i["key"]: i for i in db.get_order(conn, oid)["items"]}
+    assert "banana" in items and items["banana"]["amount"] == "2 lb"
+    assert items["banana"]["recipes"] == ["always buy"]
+
+    client.post(f"/orders/{oid}/add", data={"items": "1 dozen eggs, sparkling water"})
+    keys = [i["key"] for i in db.get_order(conn, oid)["items"]]
+    assert "sparkling water" in keys and any("egg" in k for k in keys)
+    client.post(f"/orders/{oid}/items/banana/remove")
+    assert "banana" not in [i["key"] for i in db.get_order(conn, oid)["items"]]
+
+    # opting out on the shopping page
+    oid2 = int(client.post(f"/plans/{pid}/order", data={"include_always": ["off"]}).headers["Location"].rsplit("/", 1)[1])
+    assert "banana" not in [i["key"] for i in db.get_order(conn, oid2)["items"]]

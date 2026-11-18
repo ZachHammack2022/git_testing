@@ -52,3 +52,46 @@ def refresh_links(items: list[dict], picks: dict[str, dict]) -> list[dict]:
         it["has_pick"] = bool(pick)
         it["pick_label"] = pick.get("label", "") if pick else ""
     return items
+
+
+def extra_item(line: str, picks: dict[str, dict], source: str = "extra") -> dict | None:
+    """A free-text grocery line ("1 gallon whole milk") -> an order row."""
+    from .grocery import CATEGORIES, guess_category, normalize_name, parse_ingredient_line
+
+    parsed = parse_ingredient_line(line)
+    if not parsed:
+        return None
+    amount = line.strip()[: len(line.strip()) - len(parsed["name"])].strip()
+    key = normalize_name(parsed["name"])
+    pick = picks.get(key)
+    cat = guess_category(parsed["name"])
+    return {
+        "key": key,
+        "name": parsed["name"].lower(),
+        "amount": amount,
+        "category": cat if cat in CATEGORIES else "other",
+        "recipes": [source],
+        "url": pick["url"] if pick else whole_foods_search_url(parsed["name"]),
+        "has_pick": bool(pick),
+        "pick_label": pick.get("label", "") if pick else "",
+        "added": False,
+    }
+
+
+def merge_extras(rows: list[dict], lines: list[str], picks: dict[str, dict], source: str) -> list[dict]:
+    """Append extra items; if one is already on the list, just note it there."""
+    by_key = {r["key"]: r for r in rows}
+    for line in lines:
+        item = extra_item(line, picks, source)
+        if not item:
+            continue
+        if item["key"] in by_key:
+            existing = by_key[item["key"]]
+            if source not in existing["recipes"]:
+                existing["recipes"].append(source)
+            if item["amount"]:
+                existing["amount"] = " + ".join(x for x in [existing["amount"], item["amount"]] if x)
+        else:
+            rows.append(item)
+            by_key[item["key"]] = item
+    return rows

@@ -228,7 +228,8 @@ def as_text(items: list[dict]) -> str:
 
 _KNOWN_UNITS = set(UNIT_TABLE) | {u for u in UNIT_ALIASES if u} | set(UNIT_ALIASES.values()) | {
     "clove", "can", "bunch", "head", "package", "slice", "sprig", "stalk", "fillet", "piece",
-    "jar", "bag", "box", "loaf", "pinch", "dash", "handful"}
+    "jar", "bag", "box", "loaf", "pinch", "dash", "handful", "dozen", "gallon", "gallons",
+    "bottle", "bottles", "carton", "cartons", "container", "containers", "pack", "packs"}
 
 
 def parse_ingredient_line(line: str) -> dict | None:

@@ -156,6 +156,7 @@ def create_app(db_file: str | None = None) -> Flask:
         items = _shopping(plan)
         return render_template(
             "shopping.html", plan=plan, groups=grocery.group_by_category(items),
+            always_buy=[l for l in db.get_settings(get_conn()).get("always_buy", "").splitlines() if l.strip()],
             text=grocery.as_text(items), order=db.order_for_plan(get_conn(), plan_id),
         )
 
@@ -172,7 +173,11 @@ def create_app(db_file: str | None = None) -> Flask:
             items = [i for i in items if i["key"] in buy]
             for it in items:
                 it["in_pantry"] = False
-        rows = ordering.order_items(items, db.product_picks(conn))
+        picks = db.product_picks(conn)
+        rows = ordering.order_items(items, picks)
+        if "include_always" not in request.form or "on" in request.form.getlist("include_always"):
+            always = db.get_settings(conn).get("always_buy", "").splitlines()
+            rows = ordering.merge_extras(rows, always, picks, "always buy")
         order_id = db.create_order(conn, plan_id, rows)
         return redirect(url_for("show_order", order_id=order_id))
 
@@ -199,6 +204,22 @@ def create_app(db_file: str | None = None) -> Flask:
         done = sum(1 for i in order["items"] if i["added"])
         if request.is_json:
             return jsonify(ok=True, added=done, total=len(order["items"]))
+        return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/add")
+    def add_order_item(order_id):
+        conn = get_conn()
+        order = db.get_order(conn, order_id) or abort(404)
+        lines = request.form.get("items", "").replace(",", "\n").splitlines()
+        items = ordering.merge_extras(order["items"], lines, db.product_picks(conn), "added")
+        db.save_order_items(conn, order_id, items)
+        return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/items/<path:key>/remove")
+    def remove_order_item(order_id, key):
+        conn = get_conn()
+        order = db.get_order(conn, order_id) or abort(404)
+        db.save_order_items(conn, order_id, [i for i in order["items"] if i["key"] != key])
         return redirect(url_for("show_order", order_id=order_id))
 
     @app.post("/orders/<int:order_id>/placed")
@@ -366,6 +387,7 @@ def create_app(db_file: str | None = None) -> Flask:
                 "notes": f.get("notes", "").strip(),
                 "new_recipe_ratio": max(0.0, min(1.0, (f.get("new_recipe_pct", type=int) or 0) / 100)),
                 "use_ai": f.get("use_ai") == "on",
+                "always_buy": "\n".join(l.strip() for l in f.get("always_buy", "").splitlines() if l.strip()),
             }
             db.save_settings(conn, values)
             db.set_pantry(conn, [x for x in f.get("pantry", "").replace("\n", ",").split(",")])
