@@ -9,6 +9,17 @@
     <a class="btn" href="{{ url_for('show_plan', plan_id=plan.id) }}">Edit plan</a>
   </div>
 
+  {% if tonight %}
+  <div class="card spread" style="border-color: var(--accent)">
+    <div>
+      <div class="day">Tonight</div>
+      <h3 style="margin:0">{{ tonight.recipe.title }}</h3>
+      <div class="muted small">{{ tonight.recipe.prep_minutes }} min · serves {{ tonight.servings }}</div>
+    </div>
+    <a class="btn primary" href="{{ url_for('cook', meal_id=tonight.id) }}">Start cooking</a>
+  </div>
+  {% endif %}
+
   <div class="grid">
     <div class="card">
       <h3>1 · Plan</h3>

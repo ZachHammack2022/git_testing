@@ -58,11 +58,15 @@ def create_app(db_file: str | None = None) -> Flask:
         conn = get_conn()
         plan = db.latest_plan(conn)
         order = db.order_for_plan(conn, plan["id"]) if plan else None
-        needs_feedback = []
+        needs_feedback, tonight = [], None
         if plan:
             needs_feedback = [m for m in plan["meals"] if m["fb_rating"] is None]
+            today = dt.date.today()
+            offset = (today - dt.date.fromisoformat(plan["week_start"])).days
+            if 0 <= offset < 7:
+                tonight = next((m for m in plan["meals"] if m["day"] == db.DAYS[offset]), None)
         return render_template(
-            "home.html", plan=plan, order=order, needs_feedback=needs_feedback,
+            "home.html", plan=plan, order=order, needs_feedback=needs_feedback, tonight=tonight,
             next_week=planner.next_unplanned_week(plan["week_start"] if plan else None).isoformat(),
             settings=db.get_settings(conn),
         )

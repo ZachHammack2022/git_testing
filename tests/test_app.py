@@ -202,3 +202,13 @@ def test_ics_backup_and_add_from_recipe(client, app):
     client.post(f"/plans/{pid}/meals", data={"day": "Sat", "recipe_id": "3"})
     conn = db.connect(app.config["DB_FILE"])
     assert any(m["day"] == "Sat" and m["recipe_id"] == 3 for m in db.get_plan(conn, pid)["meals"])
+
+
+def test_tonight_card(client, app):
+    import datetime as dt
+    today = dt.date.today()
+    monday = today - dt.timedelta(days=today.weekday())
+    conn = db.connect(app.config["DB_FILE"])
+    db.create_plan(conn, monday.isoformat(), [{"day": db.DAYS[today.weekday()], "recipe_id": 1, "servings": 2}], "heuristic")
+    page = client.get("/").get_data(as_text=True)
+    assert "Tonight" in page and "Start cooking" in page
