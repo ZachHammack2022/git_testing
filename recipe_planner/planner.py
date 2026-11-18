@@ -85,6 +85,37 @@ def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
 
 PERISHABLE = {"produce", "dairy & eggs", "bakery"}
 
+QUICK_WORDS = {"quick", "fast", "easy", "simple", "busy", "light"}
+_MEATLESS = ("vegetarian", "tofu", "vegan")
+THEME_SYNONYMS = {"meatless": _MEATLESS, "veggie": _MEATLESS, "vegetarian": _MEATLESS,
+                  "vegan": ("vegan",), "seafood": ("fish", "shrimp"), "taco": ("mexican", "taco"),
+                  "tacos": ("mexican", "taco"), "curry": ("curry", "indian", "thai"),
+                  "pasta": ("pasta", "spaghetti", "linguine", "gnocchi", "mac", "italian"),
+                  "stir-fry": ("stir-fry", "chinese"), "stirfry": ("stir-fry", "chinese")}
+_THEME_STOP = {"night", "nights", "day", "dinner", "something", "and", "or", "the", "a", "with",
+               "meal", "meals", "monday", "tuesday", "wednesday", "thursday", "friday",
+               "saturday", "sunday", "weeknight"}
+
+
+def theme_bonus(recipe: dict, theme: str) -> float:
+    """How well a recipe fits a day's theme, e.g. 'Taco Tuesday', 'quick', 'meatless'."""
+    words = [w.strip(".,!") for w in (theme or "").lower().split()]
+    words = [w for w in words if w and w not in _THEME_STOP]
+    if not words:
+        return 0.0
+    hay = " ".join([recipe.get("title", ""), recipe.get("cuisine", ""), recipe.get("protein", ""),
+                    " ".join(recipe.get("tags", []))]).lower()
+    bonus = 0.0
+    for w in words:
+        if w in QUICK_WORDS:
+            minutes = recipe.get("prep_minutes") or 60
+            bonus += 1.5 if minutes <= 30 else (-1.0 if minutes > 45 else 0)
+            continue
+        targets = {w, normalize_name(w), *THEME_SYNONYMS.get(w, ())}
+        if any(t and t in hay for t in targets):
+            bonus += 2.5
+    return bonus
+
 
 def _perishables(recipe: dict) -> set[str]:
     return {normalize_name(i.get("name", "")) for i in recipe.get("ingredients", [])
@@ -124,13 +155,20 @@ def heuristic_pick(
             base[r["id"]] += 1.2 * hits
     chosen: list[dict] = list(already or [])
     week_fresh: set[str] = set().union(*(_perishables(c) for c in chosen)) if chosen else set()
-    picked: list[dict] = []
-    for _day in days:
+    themes = settings.get("day_themes") or {}
+    # Themed days choose first, most constrained first, so "pizza Friday" gets the one pizza
+    # recipe even if "meatless Monday" would also have liked it.
+    def matches(d):
+        t = themes.get(d, "").strip()
+        return sum(1 for r in pool if theme_bonus(r, t) > 0) if t else 10**6
+    order = sorted(days, key=matches)
+    by_day: dict[str, dict] = {}
+    for day in order:
         if not pool:
             break
 
         def adjusted(r):
-            sc = base[r["id"]]
+            sc = base[r["id"]] + theme_bonus(r, themes.get(day, ""))
             same_cuisine = sum(1 for c in chosen if c.get("cuisine") == r.get("cuisine"))
             same_protein = sum(1 for c in chosen if c.get("protein") == r.get("protein"))
             shared = len(fresh[r["id"]] & week_fresh)
@@ -138,10 +176,10 @@ def heuristic_pick(
 
         best = max(pool, key=adjusted)
         chosen.append(best)
-        picked.append(best)
+        by_day[day] = best
         week_fresh |= fresh[best["id"]]
         pool = [r for r in pool if r["id"] != best["id"]]
-    return [{"day": d, "recipe_id": r["id"]} for d, r in zip(days, picked)]
+    return [{"day": d, "recipe_id": by_day[d]["id"]} for d in days if d in by_day]
 
 
 def ordered_days(days: list[str]) -> list[str]:

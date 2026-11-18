@@ -9,10 +9,13 @@
       <div><label for="hs">People per meal</label><input type="number" id="hs" name="household_size" min="1" value="{{ s.household_size }}" style="width:80px"></div>
       <div><label for="mp">Max cook time (min)</label><input type="number" id="mp" name="max_prep_minutes" min="10" step="5" value="{{ s.max_prep_minutes }}" style="width:90px"></div>
     </div>
-    <label>Cook dinner on</label>
-    <div class="row">
-      {% for d in DAYS %}<label class="inline"><input type="checkbox" name="day-{{ d }}" {{ 'checked' if d in s.cook_days }}> {{ d }}</label>{% endfor %}
-    </div>
+    <label>Cook dinner on <span class="muted small">— optional theme per day, e.g. "tacos", "quick", "meatless", "fish", "pizza"</span></label>
+    <table class="small">
+      {% for d in DAYS %}
+      <tr><td style="width:90px"><label class="inline"><input type="checkbox" name="day-{{ d }}" {{ 'checked' if d in s.cook_days }}> {{ d }}</label></td>
+        <td><input type="text" name="theme-{{ d }}" value="{{ (s.day_themes or {}).get(d, '') }}" placeholder="any" style="width:100%"></td></tr>
+      {% endfor %}
+    </table>
   </div>
   <div class="card">
     <h3>Tastes</h3>

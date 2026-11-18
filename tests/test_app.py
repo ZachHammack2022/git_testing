@@ -233,3 +233,10 @@ def test_cook_shows_past_notes(client, app):
     m2 = db.get_plan(conn, p2)["meals"][0]["id"]
     page = client.get(f"/meals/{m2}/cook").get_data(as_text=True)
     assert "Your notes from last time" in page and "needs more ginger" in page
+
+
+def test_settings_day_themes(client, app):
+    client.post("/settings", data={"day-Tue": "on", "theme-Tue": "tacos", "theme-Wed": " "})
+    s = db.get_settings(db.connect(app.config["DB_FILE"]))
+    assert s["day_themes"] == {"Tue": "tacos"}
+    assert 'value="tacos"' in client.get("/settings").get_data(as_text=True)

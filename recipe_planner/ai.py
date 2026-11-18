@@ -125,6 +125,10 @@ def taste_context(conn, settings: dict) -> str:
     lines = ["## Household preferences"]
     lines.append(f"- Servings per meal: {settings.get('household_size')}")
     lines.append(f"- Max prep time: {settings.get('max_prep_minutes')} minutes")
+    themes = {d: t for d, t in (settings.get("day_themes") or {}).items() if t.strip()}
+    if themes:
+        lines.append("- Day themes (follow these): " + "; ".join(
+            f"{d}: {t}" for d, t in sorted(themes.items(), key=lambda kv: db.DAYS.index(kv[0]))))
     for key, label in [("dietary", "Dietary rules"), ("dislikes", "Dislikes / never use"),
                        ("favorite_cuisines", "Favorite cuisines"), ("notes", "Standing notes")]:
         if settings.get(key):

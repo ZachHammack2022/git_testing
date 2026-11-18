@@ -513,6 +513,8 @@ def create_app(db_file: str | None = None) -> Flask:
             values = {
                 "household_size": max(1, f.get("household_size", type=int) or 2),
                 "cook_days": days or db.DAYS[:5],
+                "day_themes": {d: f.get(f"theme-{d}", "").strip() for d in db.DAYS
+                               if f.get(f"theme-{d}", "").strip()},
                 "dinners_per_week": len(days or db.DAYS[:5]),
                 "max_prep_minutes": f.get("max_prep_minutes", type=int) or 60,
                 "dietary": f.get("dietary", "").strip(),

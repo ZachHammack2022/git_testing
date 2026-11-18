@@ -139,3 +139,24 @@ def test_changing_never_again_unretires(conn):
     assert db.get_recipe(conn, 1)["archived"] == 1
     db.save_feedback(conn, mid, 1, 4, "yes", "actually fine")
     assert db.get_recipe(conn, 1)["archived"] == 0
+
+
+def test_theme_bonus():
+    taco = {"title": "Turkey Taco Lettuce Wraps", "cuisine": "Mexican", "protein": "turkey", "tags": [], "prep_minutes": 25}
+    risotto = {"title": "Mushroom Risotto", "cuisine": "Italian", "protein": "vegetarian", "tags": [], "prep_minutes": 45}
+    assert planner.theme_bonus(taco, "Taco Tuesday") > planner.theme_bonus(risotto, "Taco Tuesday")
+    assert planner.theme_bonus(risotto, "meatless") > 0 and planner.theme_bonus(taco, "meatless") == 0
+    assert planner.theme_bonus(taco, "quick") > planner.theme_bonus(risotto, "quick")
+    assert planner.theme_bonus(taco, "") == 0
+
+
+def test_themed_days_get_matching_recipes(conn):
+    db.save_settings(conn, {"cook_days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "dinners_per_week": 5,
+                            "day_themes": {"Mon": "meatless", "Fri": "pizza", "Tue": "mexican"}})
+    for seed in range(8):
+        pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=False, rng=random.Random(seed))
+        by_day = {m["day"]: m["recipe"] for m in db.get_plan(conn, pid)["meals"]}
+        assert list(by_day) == ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        assert by_day["Mon"]["protein"] in ("vegetarian", "tofu")
+        assert by_day["Tue"]["cuisine"] == "Mexican"
+        assert "pizza" in by_day["Fri"]["title"].lower()

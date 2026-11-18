@@ -85,7 +85,8 @@ DEFAULT_SETTINGS = {
     "notes": "",             # free-form guidance for the planner
     "new_recipe_ratio": 0.4, # share of AI-planned meals that should be brand new
     "use_ai": True,
-    "always_buy": "",        # newline-separated grocery lines added to every order
+    "always_buy": "",
+    "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}        # newline-separated grocery lines added to every order
 }
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
