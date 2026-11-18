@@ -4,6 +4,14 @@
 <p class="small"><a href="{{ url_for('show_plan', plan_id=plan.id) }}">← {{ m.day }} · week of {{ plan.week_start|pretty_date }}</a></p>
 <h1>{{ r.title }}</h1>
 <p class="muted">{{ r.prep_minutes }} min · serves {{ m.servings }}{% if scaled %} <span class="pill">scaled from {{ r.servings }}</span>{% endif %}</p>
+{% if past_notes %}
+<div class="card" style="border-color: var(--accent)">
+  <h3>Your notes from last time</h3>
+  <ul class="small" style="margin:0; padding-left:18px">
+    {% for f in past_notes %}<li>{{ f.notes }} <span class="muted">— {{ f.created_at|pretty_date }}, {{ '★' * f.rating }}</span></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
 <div class="grid cook">
   <div class="card">
     <h3>Ingredients</h3>

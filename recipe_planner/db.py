@@ -388,6 +388,12 @@ def save_feedback(conn, plan_meal_id: int, recipe_id: int, rating: int, make_aga
     conn.commit()
 
 
+def recipe_feedback(conn, recipe_id: int) -> list[dict]:
+    """All feedback for one recipe, newest first."""
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM feedback WHERE recipe_id=? ORDER BY created_at DESC, id DESC", (recipe_id,))]
+
+
 def recent_feedback(conn, limit: int = 40) -> list[dict]:
     return [
         dict(r)

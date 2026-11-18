@@ -35,7 +35,13 @@
   </div>
 </div>
 {% if feedback %}
-<h2>Your feedback</h2>
+<div class="spread"><h2>Your feedback</h2>
+  {% if has_notes and ai_available %}
+  <form method="post" action="{{ url_for('apply_notes', recipe_id=r.id) }}">
+    <button type="submit" onclick="this.textContent='Revising…'">Apply my notes to the recipe</button>
+  </form>
+  {% endif %}
+</div>
 <div class="card">
   <table>
     {% for f in feedback %}

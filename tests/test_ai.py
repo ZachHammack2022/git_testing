@@ -117,3 +117,15 @@ def test_retired_title_not_resurrected(conn, fake):
     rid = ai._store_new_recipe(conn, NEW_RECIPE)
     db.set_archived(conn, rid, True)
     assert ai._store_new_recipe(conn, NEW_RECIPE) is None
+
+
+def test_revise_recipe_route(client, app, monkeypatch):
+    conn = db.connect(app.config["DB_FILE"])
+    pid = db.create_plan(conn, "2026-11-16", [{"day": "Mon", "recipe_id": 1, "servings": 2}], "heuristic")
+    mid = db.get_plan(conn, pid)["meals"][0]["id"]
+    db.save_feedback(conn, mid, 1, 4, "tweak", "double the garlic")
+    seen = {}
+    monkeypatch.setattr(ai, "available", lambda: True)
+    monkeypatch.setattr(ai, "revise_recipe", lambda r, notes: seen.setdefault("notes", notes) and dict(NEW_RECIPE, title="Revised"))
+    page = client.post("/recipes/1/apply-notes").get_data(as_text=True)
+    assert seen["notes"] == ["double the garlic"] and "Revised" in page and "/recipes/1/edit" in page

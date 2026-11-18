@@ -223,3 +223,13 @@ def test_repeat_plan(client, app):
     from recipe_planner import planner
     assert new["week_start"] == planner.next_unplanned_week("2026-11-23").isoformat()
     assert [m["recipe_id"] for m in new["meals"]] == [m["recipe_id"] for m in old["meals"]]
+
+
+def test_cook_shows_past_notes(client, app):
+    conn = db.connect(app.config["DB_FILE"])
+    p1 = db.create_plan(conn, "2026-11-09", [{"day": "Mon", "recipe_id": 2, "servings": 2}], "heuristic")
+    db.save_feedback(conn, db.get_plan(conn, p1)["meals"][0]["id"], 2, 3, "tweak", "needs more ginger")
+    p2 = db.create_plan(conn, "2026-11-16", [{"day": "Mon", "recipe_id": 2, "servings": 2}], "heuristic")
+    m2 = db.get_plan(conn, p2)["meals"][0]["id"]
+    page = client.get(f"/meals/{m2}/cook").get_data(as_text=True)
+    assert "Your notes from last time" in page and "needs more ginger" in page

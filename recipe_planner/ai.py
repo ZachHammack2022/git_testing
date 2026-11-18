@@ -288,3 +288,17 @@ def recipe_from_text(text: str, servings: int) -> dict:
         f"complete recipe for {servings} servings.\n\n---\n{text.strip()}\n---"
     )
     return _call(prompt, RECIPE_SCHEMA)
+
+
+def revise_recipe(recipe: dict, notes: list[str]) -> dict:
+    """Rewrite a recipe so it incorporates the cook's notes from past attempts."""
+    slim = {k: recipe[k] for k in ("title", "description", "cuisine", "protein", "servings",
+                                   "prep_minutes", "ingredients", "steps", "tags")}
+    prompt = (
+        "Here is a recipe I've cooked, and my notes from cooking it. Revise the recipe so it "
+        "reflects the notes (adjust quantities, ingredients, steps or timing). Keep everything "
+        "the notes don't touch the same, and keep the same title unless the dish really changed.\n\n"
+        f"Recipe:\n{json.dumps(slim, indent=1)}\n\nMy notes (newest first):\n"
+        + "\n".join(f"- {n}" for n in notes)
+    )
+    return _call(prompt, RECIPE_SCHEMA)

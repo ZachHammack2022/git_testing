@@ -315,8 +315,10 @@ def create_app(db_file: str | None = None) -> Flask:
         scale = m["servings"] / max(int(r["servings"] or 1), 1)
         ingredients = [dict(i, quantity=grocery.parse_quantity(i.get("quantity")) * scale)
                        for i in r["ingredients"]]
+        past_notes = [f for f in db.recipe_feedback(conn, r["id"])
+                      if f["notes"] and f["plan_meal_id"] != meal_id][:5]
         return render_template("cook.html", m=m, r=r, plan=plan, ingredients=ingredients,
-                               scaled=abs(scale - 1) > 0.01)
+                               scaled=abs(scale - 1) > 0.01, past_notes=past_notes)
 
     # ---------------- feedback ----------------
 
@@ -385,8 +387,9 @@ def create_app(db_file: str | None = None) -> Flask:
     def recipe(recipe_id):
         conn = get_conn()
         r = db.get_recipe(conn, recipe_id) or abort(404)
-        fb = [f for f in db.recent_feedback(conn, 500) if f["recipe_id"] == recipe_id]
+        fb = db.recipe_feedback(conn, recipe_id)
         return render_template("recipe.html", r=r, feedback=fb,
+                               has_notes=any(f["notes"] for f in fb),
                                stats=db.recipe_stats(conn).get(recipe_id, {}),
                                latest=db.latest_plan(conn))
 
@@ -458,6 +461,23 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("new_recipe"))
         flash("Imported — review and save.", "info")
         return render_template("recipe_form.html", r=r, action=url_for("new_recipe"))
+
+    @app.post("/recipes/<int:recipe_id>/apply-notes")
+    def apply_notes(recipe_id):
+        conn = get_conn()
+        r = db.get_recipe(conn, recipe_id) or abort(404)
+        notes = [f["notes"] for f in db.recipe_feedback(conn, recipe_id) if f["notes"]]
+        if not notes or not ai.available():
+            flash("Needs Claude and at least one note on this recipe.", "error")
+            return redirect(url_for("recipe", recipe_id=recipe_id))
+        try:
+            revised = ai.revise_recipe(r, notes)
+        except ai.AIError as e:
+            flash(f"Couldn't revise: {e}", "error")
+            return redirect(url_for("recipe", recipe_id=recipe_id))
+        flash("Here's the recipe with your notes worked in. Review and save, or go back to keep the original.", "info")
+        return render_template("recipe_form.html", r=dict(revised, id=recipe_id),
+                               action=url_for("edit_recipe", recipe_id=recipe_id))
 
     @app.route("/recipes/<int:recipe_id>/edit", methods=["GET", "POST"])
     def edit_recipe(recipe_id):
