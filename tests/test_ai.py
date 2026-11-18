@@ -102,3 +102,18 @@ def test_ai_picks_with_disliked_ingredient_are_dropped(conn, fake):
     pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=True, use_up=["salmon"])
     meal = db.get_plan(conn, pid)["meals"][0]
     assert "gochujang" not in " ".join(i["name"] for i in meal["recipe"]["ingredients"])
+
+
+def test_zero_new_ratio_respected_and_no_duplicate_ids(conn, fake):
+    db.save_settings(conn, {"cook_days": ["Mon", "Tue"], "dinners_per_week": 2, "new_recipe_ratio": 0.0})
+    msgs = fake({"summary": "", "reused": [{"day": "Mon", "recipe_id": 1}, {"day": "Tue", "recipe_id": 1}], "new": []})
+    pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=True)
+    ids = [m["recipe_id"] for m in db.get_plan(conn, pid)["meals"]]
+    assert len(ids) == 2 and len(set(ids)) == 2
+    assert "about 0 brand-new" in msgs.calls[0]["messages"][0]["content"]
+
+
+def test_retired_title_not_resurrected(conn, fake):
+    rid = ai._store_new_recipe(conn, NEW_RECIPE)
+    db.set_archived(conn, rid, True)
+    assert ai._store_new_recipe(conn, NEW_RECIPE) is None

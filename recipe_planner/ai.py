@@ -194,17 +194,20 @@ def _call(prompt: str, schema: dict, max_tokens: int = 16000) -> dict:
         raise AIError("could not parse response") from e
 
 
-def _store_new_recipe(conn, recipe: dict) -> int:
+def _store_new_recipe(conn, recipe: dict) -> int | None:
+    """Save a Claude recipe, reusing an existing one with the same title.
+    Returns None if it matches a recipe the user retired."""
     existing = db.find_recipe_by_title(conn, recipe["title"])
-    if existing and not existing["archived"]:
-        return existing["id"]
+    if existing:
+        return None if existing["archived"] else existing["id"]
     return db.add_recipe(conn, recipe, source="ai")
 
 
 def plan_week(conn, settings: dict, days: list[str], week_start: dt.date,
               extra_request: str = "", locked: list[str] | None = None) -> tuple[list[dict], str]:
     """Returns ([{day, recipe_id}], summary). Unknown ids and duplicate days are dropped."""
-    ratio = float(settings.get("new_recipe_ratio") or 0.4)
+    ratio = settings.get("new_recipe_ratio")
+    ratio = 0.4 if ratio is None else float(ratio)
     n_new = max(0, round(len(days) * ratio))
     prompt = (
         f"{taste_context(conn, settings)}\n\n"
@@ -224,15 +227,20 @@ def plan_week(conn, settings: dict, days: list[str], week_start: dt.date,
     valid_ids = {r["id"] for r in db.list_recipes(conn)}
     picks: list[dict] = []
     used_days: set[str] = set()
+    used_ids: set[int] = set()
+
+    def take(day: str, rid: int | None) -> None:
+        if rid and day in days and day not in used_days and rid not in used_ids:
+            picks.append({"day": day, "recipe_id": rid})
+            used_days.add(day)
+            used_ids.add(rid)
+
     for item in data.get("reused", []):
-        if item["day"] in days and item["day"] not in used_days and item["recipe_id"] in valid_ids:
-            picks.append({"day": item["day"], "recipe_id": item["recipe_id"]})
-            used_days.add(item["day"])
+        if item["recipe_id"] in valid_ids:
+            take(item["day"], item["recipe_id"])
     for item in data.get("new", []):
         if item["day"] in days and item["day"] not in used_days and item["recipe"].get("ingredients"):
-            rid = _store_new_recipe(conn, item["recipe"])
-            picks.append({"day": item["day"], "recipe_id": rid})
-            used_days.add(item["day"])
+            take(item["day"], _store_new_recipe(conn, item["recipe"]))
     return picks, data.get("summary", "")
 
 
@@ -267,7 +275,10 @@ def suggest_replacement(conn, settings: dict, plan: dict, meal: dict, request: s
     recipe = data.get("recipe") or {}
     if not recipe.get("ingredients"):
         raise AIError("no usable recipe returned")
-    return _store_new_recipe(conn, recipe), data.get("reason", "")
+    rid = _store_new_recipe(conn, recipe)
+    if rid is None:
+        raise AIError("suggested a recipe you retired")
+    return rid, data.get("reason", "")
 
 
 def recipe_from_text(text: str, servings: int) -> dict:
