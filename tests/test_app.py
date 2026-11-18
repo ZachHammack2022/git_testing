@@ -212,3 +212,14 @@ def test_tonight_card(client, app):
     db.create_plan(conn, monday.isoformat(), [{"day": db.DAYS[today.weekday()], "recipe_id": 1, "servings": 2}], "heuristic")
     page = client.get("/").get_data(as_text=True)
     assert "Tonight" in page and "Start cooking" in page
+
+
+def test_repeat_plan(client, app):
+    pid = _plan(client)
+    r = client.post(f"/plans/{pid}/repeat")
+    new_id = int(r.headers["Location"].rsplit("/", 1)[1])
+    conn = db.connect(app.config["DB_FILE"])
+    old, new = db.get_plan(conn, pid), db.get_plan(conn, new_id)
+    from recipe_planner import planner
+    assert new["week_start"] == planner.next_unplanned_week("2026-11-23").isoformat()
+    assert [m["recipe_id"] for m in new["meals"]] == [m["recipe_id"] for m in old["meals"]]

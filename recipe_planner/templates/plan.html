@@ -78,6 +78,7 @@
 
 <div class="row">
   <a class="btn small" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Add to calendar (.ics)</a>
+  <form method="post" action="{{ url_for('repeat_plan', plan_id=plan.id) }}"><button class="small" type="submit">Plan this week again</button></form>
   <form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
     <button class="danger small" type="submit">Delete plan</button>
   </form>

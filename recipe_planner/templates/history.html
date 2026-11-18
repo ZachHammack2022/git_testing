@@ -44,7 +44,8 @@
     <tr><td><a href="{{ url_for('show_plan', plan_id=p.id) }}">{{ p.week_start|pretty_date }}</a></td>
       <td>{{ p.meal_count }}</td><td>{{ p.feedback_count }}</td>
       <td class="small muted">{{ 'Claude' if p.planner == 'claude' else 'built-in' }}</td>
-      <td class="small"><a href="{{ url_for('feedback', plan_id=p.id) }}">rate</a></td></tr>
+      <td class="small"><a href="{{ url_for('feedback', plan_id=p.id) }}">rate</a> ·
+        <form method="post" action="{{ url_for('repeat_plan', plan_id=p.id) }}" style="display:inline"><button class="link small" type="submit">repeat</button></form></td></tr>
     {% endfor %}
   </table>
   {% else %}<p class="muted">No plans yet.</p>{% endif %}

@@ -102,6 +102,19 @@ def create_app(db_file: str | None = None) -> Flask:
             order=db.order_for_plan(conn, plan_id),
         )
 
+    @app.post("/plans/<int:plan_id>/repeat")
+    def repeat_plan(plan_id):
+        conn = get_conn()
+        plan = plan_or_404(plan_id)
+        latest = db.latest_plan(conn)
+        week = planner.next_unplanned_week(latest["week_start"] if latest else None)
+        meals = [{"day": m["day"], "recipe_id": m["recipe_id"], "servings": m["servings"]}
+                 for m in plan["meals"] if not m["recipe"]["archived"]]
+        new_id = db.create_plan(conn, week.isoformat(), meals, plan["planner"],
+                                f"Repeat of the week of {_pretty_date(plan['week_start'])}.")
+        flash("Copied — swap anything you like.", "info")
+        return redirect(url_for("show_plan", plan_id=new_id))
+
     @app.post("/plans/<int:plan_id>/delete")
     def delete_plan(plan_id):
         db.delete_plan(get_conn(), plan_id)
