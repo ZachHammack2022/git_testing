@@ -62,4 +62,9 @@
   <p class="muted small">None yet. While ordering, save the exact product you like for an ingredient and future orders will link straight to it.</p>
   {% endif %}
 </div>
+<div class="card">
+  <h3>Backup</h3>
+  <p class="muted small">Everything lives in one SQLite file. Download a copy now and then.</p>
+  <a class="btn" href="{{ url_for('backup') }}">Download backup</a>
+</div>
 {% endblock %}

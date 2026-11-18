@@ -4,7 +4,8 @@ from __future__ import annotations
 import datetime as dt
 import os
 
-from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
+                   send_file, url_for)
 
 from . import ai, db, grocery, importer, ordering, planner
 
@@ -131,6 +132,28 @@ def create_app(db_file: str | None = None) -> Flask:
         if request.is_json:
             return jsonify(locked=not meal["locked"])
         return redirect(url_for("show_plan", plan_id=meal["plan_id"]) + f"#meal-{meal_id}")
+
+    @app.get("/plans/<int:plan_id>.ics")
+    def plan_ics(plan_id):
+        plan = plan_or_404(plan_id)
+        week = dt.date.fromisoformat(plan["week_start"])
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+        def esc(t):
+            return t.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//meal-planner//EN"]
+        for m in plan["meals"]:
+            day = week + dt.timedelta(days=db.DAYS.index(m["day"]))
+            r = m["recipe"]
+            desc = f"{r['prep_minutes']} min · serves {m['servings']}\n" + url_for("cook", meal_id=m["id"], _external=True)
+            lines += ["BEGIN:VEVENT", f"UID:meal-{m['id']}@meal-planner", f"DTSTAMP:{stamp}",
+                      f"DTSTART;VALUE=DATE:{day:%Y%m%d}",
+                      f"DTEND;VALUE=DATE:{day + dt.timedelta(days=1):%Y%m%d}",
+                      f"SUMMARY:{esc('Dinner: ' + r['title'])}", f"DESCRIPTION:{esc(desc)}", "END:VEVENT"]
+        lines.append("END:VCALENDAR")
+        return Response("\r\n".join(lines) + "\r\n", mimetype="text/calendar",
+                        headers={"Content-Disposition": f"attachment; filename=dinners-{plan['week_start']}.ics"})
 
     @app.post("/meals/<int:meal_id>/swap")
     def swap_meal(meal_id):
@@ -344,7 +367,8 @@ def create_app(db_file: str | None = None) -> Flask:
         r = db.get_recipe(conn, recipe_id) or abort(404)
         fb = [f for f in db.recent_feedback(conn, 500) if f["recipe_id"] == recipe_id]
         return render_template("recipe.html", r=r, feedback=fb,
-                               stats=db.recipe_stats(conn).get(recipe_id, {}))
+                               stats=db.recipe_stats(conn).get(recipe_id, {}),
+                               latest=db.latest_plan(conn))
 
     def _recipe_from_form(form) -> dict:
         ingredients = [x for x in (grocery.parse_ingredient_line(l)
@@ -465,6 +489,20 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("settings"))
         return render_template("settings.html", s=db.get_settings(conn), pantry=db.pantry(conn),
                                picks=db.product_picks(conn))
+
+    @app.get("/backup.db")
+    def backup():
+        import io
+        import sqlite3
+
+        src = get_conn()
+        dst = sqlite3.connect(":memory:")
+        src.backup(dst)
+        data = dst.serialize()
+        dst.close()
+        name = f"meal-planner-backup-{dt.date.today().isoformat()}.db"
+        return send_file(io.BytesIO(data), mimetype="application/x-sqlite3", as_attachment=True,
+                         download_name=name)
 
     @app.post("/picks/delete")
     def delete_pick():

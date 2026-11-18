@@ -187,3 +187,18 @@ def test_migration_adds_locked_column(tmp_path):
     conn = db.connect(path)
     db.init(conn)
     assert "locked" in {r["name"] for r in conn.execute("PRAGMA table_info(plan_meals)")}
+
+
+def test_ics_backup_and_add_from_recipe(client, app):
+    pid = _plan(client)
+    ics = client.get(f"/plans/{pid}.ics")
+    body = ics.get_data(as_text=True)
+    assert ics.mimetype == "text/calendar" and body.count("BEGIN:VEVENT") == 5
+    assert "DTSTART;VALUE=DATE:20261123" in body
+    b = client.get("/backup.db")
+    assert b.data[:16] == b"SQLite format 3\x00"
+    page = client.get("/recipes/3").get_data(as_text=True)
+    assert "Add to the week of" in page
+    client.post(f"/plans/{pid}/meals", data={"day": "Sat", "recipe_id": "3"})
+    conn = db.connect(app.config["DB_FILE"])
+    assert any(m["day"] == "Sat" and m["recipe_id"] == 3 for m in db.get_plan(conn, pid)["meals"])

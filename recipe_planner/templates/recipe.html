@@ -14,6 +14,14 @@
     </form>
   </div>
 </div>
+{% if latest and not r.archived %}
+<form method="post" action="{{ url_for('add_meal', plan_id=latest.id) }}" class="card row">
+  <input type="hidden" name="recipe_id" value="{{ r.id }}">
+  <span class="small">Add to the week of {{ latest.week_start|pretty_date }} on</span>
+  <select name="day">{% for d in DAYS %}<option>{{ d }}</option>{% endfor %}</select>
+  <button type="submit">Add</button>
+</form>
+{% endif %}
 {% if r.archived %}<div class="flash">This recipe is retired and won't be planned.</div>{% endif %}
 {% if r.description %}<p>{{ r.description }}</p>{% endif %}
 <div class="grid">
