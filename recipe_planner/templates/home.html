@@ -55,7 +55,7 @@
       <div class="card meal">
         <div class="day">{{ m.day }}</div>
         <h3><a href="{{ url_for('cook', meal_id=m.id) }}">{{ m.recipe.title }}</a></h3>
-        <div class="muted small">{{ m.recipe.prep_minutes }} min · serves {{ m.servings }}
+        <div class="muted small">{{ m.recipe.prep_minutes }} min · serves {{ m.servings }}{% if m.leftovers %} · 🥡 leftovers{% endif %}
           {% if m.fb_rating %} · {{ '★' * m.fb_rating }}{% else %} · <a href="{{ url_for('cook', meal_id=m.id) }}">cook &amp; rate</a>{% endif %}</div>
       </div>
     {% endfor %}

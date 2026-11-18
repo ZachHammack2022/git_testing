@@ -37,6 +37,7 @@
     </div>
     <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
       <button type="submit" formaction="{{ url_for('lock_meal', meal_id=m.id) }}" title="{{ 'Unlock' if m.locked else 'Lock: keep when re-planning' }}" aria-label="{{ 'Unlock' if m.locked else 'Lock' }}">{{ '🔒' if m.locked else '🔓' }}</button>
+      <button type="submit" formaction="{{ url_for('toggle_leftovers', meal_id=m.id) }}" title="Cook extra for lunch the next day" class="{{ 'primary' if m.leftovers }}">🥡{{ ' +' ~ m.leftovers if m.leftovers }}</button>
       <a class="btn" href="{{ url_for('cook', meal_id=m.id) }}">Cook</a>
       <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
     </form>

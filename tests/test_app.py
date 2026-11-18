@@ -240,3 +240,19 @@ def test_settings_day_themes(client, app):
     s = db.get_settings(db.connect(app.config["DB_FILE"]))
     assert s["day_themes"] == {"Tue": "tacos"}
     assert 'value="tacos"' in client.get("/settings").get_data(as_text=True)
+
+
+def test_leftovers_scale_shopping(client, app):
+    from recipe_planner import grocery
+    conn = db.connect(app.config["DB_FILE"])
+    pid = db.create_plan(conn, "2026-11-23", [{"day": "Mon", "recipe_id": 1, "servings": 2}], "heuristic")
+    mid = db.get_plan(conn, pid)["meals"][0]["id"]
+    before = {i["key"]: i["amount"] for i in grocery.build_shopping_list(db.get_plan(conn, pid)["meals"])}
+    client.post(f"/meals/{mid}/leftovers")
+    plan = db.get_plan(conn, pid)
+    assert plan["meals"][0]["leftovers"] == 2 and plan["meals"][0]["total_servings"] == 4
+    after = {i["key"]: i["amount"] for i in grocery.build_shopping_list(plan["meals"])}
+    assert after["chicken thigh"] == "2 lb" and before["chicken thigh"] == "1 lb"
+    assert "for leftovers" in client.get(f"/meals/{mid}/cook").get_data(as_text=True)
+    client.post(f"/meals/{mid}/leftovers")
+    assert db.get_meal(conn, mid)["leftovers"] == 0

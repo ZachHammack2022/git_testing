@@ -108,7 +108,8 @@ def create_app(db_file: str | None = None) -> Flask:
         plan = plan_or_404(plan_id)
         latest = db.latest_plan(conn)
         week = planner.next_unplanned_week(latest["week_start"] if latest else None)
-        meals = [{"day": m["day"], "recipe_id": m["recipe_id"], "servings": m["servings"]}
+        meals = [{"day": m["day"], "recipe_id": m["recipe_id"], "servings": m["servings"],
+                  "leftovers": m["leftovers"]}
                  for m in plan["meals"] if not m["recipe"]["archived"]]
         new_id = db.create_plan(conn, week.isoformat(), meals, plan["planner"],
                                 f"Repeat of the week of {_pretty_date(plan['week_start'])}.")
@@ -174,6 +175,14 @@ def create_app(db_file: str | None = None) -> Flask:
         lines.append("END:VCALENDAR")
         return Response("\r\n".join(lines) + "\r\n", mimetype="text/calendar",
                         headers={"Content-Disposition": f"attachment; filename=dinners-{plan['week_start']}.ics"})
+
+    @app.post("/meals/<int:meal_id>/leftovers")
+    def toggle_leftovers(meal_id):
+        conn = get_conn()
+        meal = db.get_meal(conn, meal_id) or abort(404)
+        extra = 0 if meal["leftovers"] else int(db.get_settings(conn)["household_size"])
+        db.update_meal(conn, meal_id, leftovers=extra)
+        return redirect(url_for("show_plan", plan_id=meal["plan_id"]) + f"#meal-{meal_id}")
 
     @app.post("/meals/<int:meal_id>/swap")
     def swap_meal(meal_id):
@@ -312,7 +321,7 @@ def create_app(db_file: str | None = None) -> Flask:
         plan = db.get_plan(conn, meal["plan_id"])
         m = next(x for x in plan["meals"] if x["id"] == meal_id)
         r = m["recipe"]
-        scale = m["servings"] / max(int(r["servings"] or 1), 1)
+        scale = m["total_servings"] / max(int(r["servings"] or 1), 1)
         ingredients = [dict(i, quantity=grocery.parse_quantity(i.get("quantity")) * scale)
                        for i in r["ingredients"]]
         past_notes = [f for f in db.recipe_feedback(conn, r["id"])

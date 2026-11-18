@@ -169,7 +169,7 @@ def build_shopping_list(meals: list[dict], pantry: list[str] | None = None) -> l
     for meal in meals:
         recipe = meal.get("recipe") or {}
         base_servings = max(int(recipe.get("servings") or 1), 1)
-        scale = (meal.get("servings") or base_servings) / base_servings
+        scale = (meal.get("total_servings") or meal.get("servings") or base_servings) / base_servings
         for ing in recipe.get("ingredients", []):
             raw_name = ing.get("name", "").strip()
             if not raw_name:

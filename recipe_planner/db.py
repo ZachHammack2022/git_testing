@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS plan_meals (
     recipe_id INTEGER NOT NULL REFERENCES recipes(id),
     servings INTEGER NOT NULL,
     cooked INTEGER DEFAULT 0,
-    locked INTEGER DEFAULT 0
+    locked INTEGER DEFAULT 0,
+    leftovers INTEGER DEFAULT 0     -- extra servings to cook for lunch the next day
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
@@ -113,6 +114,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(plan_meals)")}
     if "locked" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN locked INTEGER DEFAULT 0")
+    if "leftovers" not in cols:
+        conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
 
 
 def init(conn: sqlite3.Connection) -> None:
@@ -283,8 +286,8 @@ def create_plan(conn, week_start: str, meals: list[dict], planner: str, notes: s
     plan_id = cur.lastrowid
     for m in meals:
         conn.execute(
-            "INSERT INTO plan_meals(plan_id, day, recipe_id, servings) VALUES (?,?,?,?)",
-            (plan_id, m["day"], m["recipe_id"], m["servings"]),
+            "INSERT INTO plan_meals(plan_id, day, recipe_id, servings, leftovers) VALUES (?,?,?,?,?)",
+            (plan_id, m["day"], m["recipe_id"], m["servings"], m.get("leftovers", 0)),
         )
     conn.commit()
     return plan_id
@@ -304,6 +307,7 @@ def get_plan(conn, plan_id: int) -> dict | None:
     ):
         meal = dict(m)
         meal["recipe"] = get_recipe(conn, m["recipe_id"])
+        meal["total_servings"] = meal["servings"] + (meal.get("leftovers") or 0)
         meals.append(meal)
     meals.sort(key=lambda x: (DAYS.index(x["day"]) if x["day"] in DAYS else 99, x["id"]))
     plan["meals"] = meals
@@ -339,7 +343,7 @@ def get_meal(conn, meal_id: int) -> dict | None:
 
 
 def update_meal(conn, meal_id: int, **fields) -> None:
-    allowed = {"recipe_id", "servings", "cooked", "day", "locked"}
+    allowed = {"recipe_id", "servings", "cooked", "day", "locked", "leftovers"}
     sets = [(k, v) for k, v in fields.items() if k in allowed]
     if not sets:
         return

@@ -3,7 +3,7 @@
 {% block content %}
 <p class="small"><a href="{{ url_for('show_plan', plan_id=plan.id) }}">← {{ m.day }} · week of {{ plan.week_start|pretty_date }}</a></p>
 <h1>{{ r.title }}</h1>
-<p class="muted">{{ r.prep_minutes }} min · serves {{ m.servings }}{% if scaled %} <span class="pill">scaled from {{ r.servings }}</span>{% endif %}</p>
+<p class="muted">{{ r.prep_minutes }} min · serves {{ m.servings }}{% if m.leftovers %} + {{ m.leftovers }} for leftovers 🥡{% endif %}{% if scaled %} <span class="pill">scaled from {{ r.servings }}</span>{% endif %}</p>
 {% if past_notes %}
 <div class="card" style="border-color: var(--accent)">
   <h3>Your notes from last time</h3>
