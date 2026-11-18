@@ -70,6 +70,13 @@
 {% endif %}
 
 <details>
+  <summary>Experimental: fill the cart automatically</summary>
+  <p class="small">Run this in a terminal next to the app. It opens a browser where you sign in to Amazon once, then clicks "Add to cart" for each unticked item and ticks it off here. It never checks out.</p>
+  <pre class="list">python -m recipe_planner.autocart --order {{ order.id }}</pre>
+  <p class="muted small">Needs <code>pip install playwright &amp;&amp; python -m playwright install chromium</code>. Amazon's pages change, so check the cart before you check out.</p>
+</details>
+
+<details>
   <summary>Plain-text list</summary>
   <pre class="list" id="plain">{{ text }}</pre>
 </details>

@@ -63,6 +63,12 @@ Amazon has no public API for placing Whole Foods orders, so the app can't check 
 
 You choose the delivery window and pay on Amazon as usual.
 
+**Experimental: auto-fill the cart.** `python -m recipe_planner.autocart` opens a real browser with its own profile, so you sign in to Amazon once. It then tries to click "Add to cart" for each unticked item on your latest open order, ticks off the ones it adds in the app, and stops at your cart. You review quantities and check out yourself.
+
+- It needs Playwright: `pip install playwright && python -m playwright install chromium`.
+- It depends on Amazon's page layout, so anything it can't add is listed for you to do by hand.
+- On a search page it adds the first result. Saved product links make it more accurate.
+
 ## How feedback changes the plan
 
 - **Built-in planner:**
