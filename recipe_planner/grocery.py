@@ -62,10 +62,20 @@ _NO_SINGULAR = ("ss", "us", "is", "ous", "molasses", "hummus", "couscous", "aspa
                 "beans", "peas", "flakes", "breadcrumbs", "panko crumbs")
 
 
+# Descriptors that don't change what you buy ("large shrimp" == "shrimp").
+_DESCRIPTORS = {"fresh", "large", "small", "medium", "ripe", "boneless", "skinless", "raw",
+                "organic", "jumbo", "extra-large", "peeled", "deveined", "chopped",
+                "minced", "shredded", "grated", "trimmed"}
+# Not stripped on purpose: "diced"/"crushed" (canned tomatoes are a different product than
+# fresh) and "cooked" (a cup of cooked rice is not a cup of dry rice).
+
+
 def normalize_name(name: str) -> str:
     n = re.sub(r"\s+", " ", (name or "").strip().lower())
     n = re.sub(r"\(.*?\)", "", n).strip()       # drop parentheticals
     n = n.split(",")[0].strip()                  # "onion, diced" -> "onion"
+    words = [w for w in n.split(" ") if w not in _DESCRIPTORS]
+    n = " ".join(words) or n
     if n in _IRREGULAR:
         return _IRREGULAR[n]
     words = n.split(" ")

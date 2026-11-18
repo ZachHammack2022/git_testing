@@ -93,3 +93,11 @@ def test_ingredient_line_round_trip():
     for line in ["2 cups chicken broth", "1 1/2 cloves garlic", "3 bunches cilantro", "1 tbsp honey", "salt"]:
         ing = grocery.parse_ingredient_line(line)
         assert grocery.ingredient_to_line(ing) == line
+
+
+def test_descriptors_merge_but_products_stay_distinct():
+    assert grocery.normalize_name("large shrimp") == grocery.normalize_name("shrimp")
+    assert grocery.normalize_name("boneless chicken thighs") == "chicken thigh"
+    assert grocery.normalize_name("fresh ginger") == "ginger"
+    assert grocery.normalize_name("diced tomatoes") != grocery.normalize_name("tomatoes")
+    assert grocery.normalize_name("cooked rice") != grocery.normalize_name("rice")

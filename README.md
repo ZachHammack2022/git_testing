@@ -9,6 +9,12 @@ A personal, single-user weekly dinner planner:
 ## Run it
 
 ```bash
+./run.sh            # first run sets everything up, then opens http://127.0.0.1:5000
+```
+
+Or by hand:
+
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m recipe_planner          # then open http://127.0.0.1:5000
