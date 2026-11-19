@@ -214,6 +214,9 @@ def build_shopping_list(meals: list[dict], pantry: list[str] | None = None) -> l
             "category": item["category"],
             "recipes": item["recipes"],
             "in_pantry": item["in_pantry"],
+            # numeric totals per unit family (base units), for leftover tracking
+            "needs": [{"family": f.split(":")[0], "qty": fam["qty"], "unit": fam["unit"]}
+                      for f, fam in item["families"].items() if fam["qty"] > 0],
         })
     items.sort(key=lambda i: (CATEGORIES.index(i["category"]), i["name"]))
     return items

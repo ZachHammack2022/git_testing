@@ -504,7 +504,9 @@ def on_hand(conn, today=None) -> list[dict]:
 
     today = today or dt.date.today()
     cutoff = (today - dt.timedelta(days=ON_HAND_DAYS)).isoformat()
-    return [i for i in (get_settings(conn).get("on_hand") or []) if i.get("added", "") >= cutoff]
+    # Leftovers from an order carry their own use-by date; typed-in food uses the 10-day rule.
+    return [i for i in (get_settings(conn).get("on_hand") or [])
+            if (i["use_by"] >= today.isoformat() if i.get("use_by") else i.get("added", "") >= cutoff)]
 
 
 def set_on_hand(conn, names: list[str], today=None, replace: bool = True) -> None:
@@ -524,6 +526,20 @@ def set_on_hand(conn, names: list[str], today=None, replace: bool = True) -> Non
         key = normalize_name(n)
         out[key] = (current.get(key) if replace else None) or {"name": n, "added": stamp}
     save_settings(conn, {"on_hand": list(out.values())})
+
+
+def add_leftovers(conn, leftovers: list[dict], today=None) -> None:
+    """Add what's left after an order to the Kitchen list: [{name, amount, use_by}]."""
+    import datetime as dt
+
+    from .grocery import normalize_name
+
+    stamp = (today or dt.date.today()).isoformat()
+    current = {normalize_name(i["name"]): i for i in on_hand(conn, today)}
+    for lo in leftovers:
+        current[normalize_name(lo["name"])] = {"name": lo["name"].lower(), "added": stamp,
+                                               "amount": lo["amount"], "use_by": lo["use_by"]}
+    save_settings(conn, {"on_hand": list(current.values())})
 
 
 def product_picks(conn) -> dict[str, dict]:

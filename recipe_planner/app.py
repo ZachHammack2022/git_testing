@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, send_from_directory, url_for)
 
-from . import ai, autocart, cookmode, db, grocery, importer, ordering, planner, prep
+from . import ai, autocart, cookmode, db, grocery, importer, leftovers, ordering, planner, prep
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -99,6 +99,8 @@ def create_app(db_file: str | None = None) -> Flask:
             "home.html", plan=plan, order=order, needs_feedback=needs_feedback, tonight=tonight,
             next_week=planner.next_unplanned_week(plan["week_start"] if plan else None).isoformat(),
             settings=db.get_settings(conn), on_hand=[i["name"] for i in db.on_hand(conn)],
+            use_soon=sorted(db.on_hand(conn), key=lambda i: i.get("use_by") or "9999")[:8],
+            today=dt.date.today().isoformat(),
         )
 
     @app.post("/plans")
@@ -544,7 +546,18 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("show_order", order_id=order_id))
         db.mark_order_placed(conn, order_id, total)
         if order["status"] != "placed":
-            flash("Order marked as placed. Enjoy the week — come back to rate the meals!", "info")
+            msg = "Order marked as placed. Enjoy the week — come back to rate the meals!"
+            plan = db.get_plan(conn, order["plan_id"]) if order["plan_id"] else None
+            if plan:
+                bought = {i["key"] for i in order["items"]}
+                left = leftovers.estimate([i for i in grocery.build_shopping_list(plan["meals"])
+                                           if i["key"] in bought])
+                if left:
+                    db.add_leftovers(conn, left)
+                    msg += (f" {len(left)} leftover{'s' if len(left) != 1 else ''} added to your Kitchen: "
+                            + ", ".join(f"{x['name']} ({x['amount'].removeprefix('about ')})" for x in left[:4])
+                            + ("…" if len(left) > 4 else "."))
+            flash(msg, "info")
         else:
             flash("Saved.", "info")
         return redirect(url_for("show_order", order_id=order_id))
@@ -642,7 +655,8 @@ def create_app(db_file: str | None = None) -> Flask:
             items = [r for r in items if r["archived"]]
         if q:
             items = [r for r in items if q in r["title"].lower() or q in r["cuisine"].lower()
-                     or q in r["protein"].lower() or any(q in t for t in r["tags"])]
+                     or q in r["protein"].lower() or any(q in t for t in r["tags"])
+                     or any(q in (i.get("name") or "").lower() for i in r["ingredients"])]
         stats = db.recipe_stats(conn)
         sort = request.args.get("sort", "name")
         if request.args.get("untried") == "1":
