@@ -115,17 +115,37 @@ def merge_extras(rows: list[dict], lines: list[str], picks: dict[str, dict], sou
     return rows
 
 
-def chosen_option(item: dict) -> dict | None:
-    """The previewed product this item will get: your pick if we know it, else what the cart
-    filler would take (the first non-sponsored result)."""
-    options = item.get("options") or []
-    if not options:
+def _pick_asin(item: dict) -> str | None:
+    if not item.get("has_pick"):
         return None
-    want = item.get("asin") or (_ASIN.search(item.get("url", "")) or [None, None])[1]
-    if item.get("has_pick") and want:
-        want = want.upper()
-        return next((o for o in options if o["asin"] == want), options[0])
-    return options[0]
+    m = _ASIN.search(item.get("url", ""))
+    return m.group(1).upper() if m else None
+
+
+def display_options(item: dict) -> list[dict]:
+    """Previewed products for an item, with your saved product always first: it's what the
+    cart filler will add, so it must be visible even if the preview couldn't read its page."""
+    options = [dict(o) for o in item.get("options") or []]
+    asin = _pick_asin(item)
+    if not asin:
+        return options
+    mine = next((o for o in options if o["asin"] == asin), None)
+    if mine is None:
+        if not options and "options" not in item:
+            return []  # not looked up yet
+        label = re.sub(r"^auto-picked:\s*", "", item.get("pick_label") or "")
+        mine = {"asin": asin, "title": label or "Your saved product", "image": "", "price": None,
+                "unit_price": ""}
+    else:
+        options.remove(mine)
+    return [dict(mine, pick=True)] + options
+
+
+def chosen_option(item: dict) -> dict | None:
+    """The previewed product this item will get: your saved product if you have one, else what
+    the cart filler would take (the first non-sponsored result)."""
+    options = display_options(item)
+    return options[0] if options else None
 
 
 def estimate_total(items: list[dict]) -> dict:

@@ -603,20 +603,88 @@ def read_results(page, limit: int = PREVIEW_OPTIONS) -> list[dict]:
     return out
 
 
+_TITLE_JUNK = re.compile(r"^\s*amazon\.com\s*:\s*|\s*[:|-]\s*(amazon\.com|grocery[^:|]*|whole foods[^:|]*)\s*$", re.I)
+
+
+def _meta(page, prop: str) -> str:
+    try:
+        loc = page.locator(f"meta[property='{prop}'], meta[name='{prop}']")
+        return (loc.first.get_attribute("content") or "").strip() if loc.count() else ""
+    except Exception:
+        return ""
+
+
 def read_product(page) -> dict | None:
-    """The product page currently loaded (for your saved pick)."""
+    """The product page currently loaded (for your saved pick). Only product-specific
+    elements are trusted: a page's first heading can be anything (e.g. a chat panel)."""
     asin = asin_from_url(page.url or "")
-    title = _text(page.locator("#productTitle, h1"))
-    if not asin or not title:
+    if not asin:
         return None
+    title = _text(page.locator("#productTitle, #title #productTitle, #title"))
+    if not title:
+        title = _meta(page, "og:title")
+    if not title:
+        try:
+            title = page.title() or ""
+        except Exception:
+            title = ""
+        for _ in range(2):
+            title = _TITLE_JUNK.sub("", title).strip()
+        if title.lower() in ("amazon.com", "amazon", ""):
+            title = ""
     img = page.locator("#landingImage, #imgTagWrapperId img, #main-image")
     image = (img.first.get_attribute("src") or "") if img.count() else ""
+    image = image or _meta(page, "og:image")
     return {"asin": asin, "title": re.sub(r"\s+", " ", title)[:140],
             "image": image if image.startswith(("https://", "http://")) else "",
             "price": _price(_text(page.locator(
                 "#corePrice_feature_div .a-offscreen, #corePriceDisplay_desktop_feature_div .a-offscreen, "
-                ".a-price .a-offscreen"))),
+                "#apex_desktop .a-price .a-offscreen, .a-price .a-offscreen"))),
             "unit_price": "", "pick": True}
+
+
+class _Blocked(Exception):
+    """Amazon wants a sign-in or a human check that a hidden browser can't show you."""
+
+
+def _preview_item(page, item: dict, headless: bool, say) -> list[dict]:
+    """Options for one item: your saved product first (always, even if its page can't be
+    read), then the top non-sponsored search results."""
+    def check():
+        if needs_human(page) and (headless or not wait_for_human(page, say)):
+            raise _Blocked()
+
+    options = []
+    asin = asin_from_url(item.get("url", "")) if item.get("has_pick") else None
+    if asin:
+        mine = None
+        try:
+            page.goto(item["url"], wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(800)
+            check()
+            mine = read_product(page)
+        except _Blocked:
+            raise
+        except Exception as e:
+            print(f"  {item['name']}: couldn't read your saved product ({e.__class__.__name__})")
+        mine = mine or {"asin": asin, "title": "", "image": "", "price": None, "unit_price": "", "pick": True}
+        mine["asin"] = asin  # the product we'll add, even if Amazon redirected
+        mine["title"] = mine["title"] or re.sub(r"^auto-picked:\s*", "", item.get("pick_label") or "") \
+            or "Your saved product"
+        options.append(mine)
+    try:
+        page.goto(search_url(item["name"]), wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1000)
+        check()
+        seen = {o["asin"] for o in options}
+        options += [o for o in read_results(page) if o["asin"] not in seen]
+    except _Blocked:
+        raise
+    except Exception as e:
+        if not options:
+            raise
+        print(f"  {item['name']}: search failed ({e.__class__.__name__}); showing your saved product only")
+    return options[:PREVIEW_OPTIONS + 1]
 
 
 def preview_order(order_id: int, headless: bool = True, profile_dir: str | None = None,
@@ -648,44 +716,44 @@ def preview_order(order_id: int, headless: bool = True, profile_dir: str | None 
         with sync_playwright() as pw:
             ctx = _launch(pw, profile, headless)
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            failed, streak = [], 0
             for n, key in enumerate(todo, 1):
                 item = next((i for i in db.get_order(conn, order_id)["items"] if i["key"] == key), None)
                 if not item:
                     continue
                 write_status(order_id, message=f"Looking up {item['name']} ({n} of {len(todo)})…",
                              preview={"done": n - 1, "total": len(todo)})
-                options = []
-                if item.get("has_pick") and asin_from_url(item.get("url", "")):
-                    page.goto(item["url"], wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(800)
-                    if needs_human(page) and (headless or not wait_for_human(page, say)):
-                        ctx.close()
-                        finish(ok=False, error=_PREVIEW_BLOCKED)
-                        return 1
-                    mine = read_product(page)
-                    if mine:
-                        options.append(mine)
-                page.goto(search_url(item["name"]), wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(1000)
-                if needs_human(page) and (headless or not wait_for_human(page, say)):
+                try:
+                    options = _preview_item(page, item, headless, say)
+                except _Blocked:
                     ctx.close()
-                    finish(ok=False, error=_PREVIEW_BLOCKED)
+                    finish(ok=False, error=_PREVIEW_BLOCKED, found=found, looked_up=n - 1)
                     return 1
-                seen = {o["asin"] for o in options}
-                options += [o for o in read_results(page) if o["asin"] not in seen]
+                except Exception as e:  # one bad page shouldn't end the whole preview
+                    print(f"  {item['name']}: {e.__class__.__name__}: {str(e)[:120]}")
+                    failed.append(item["name"])
+                    streak += 1
+                    if streak >= FAIL_STREAK_PAUSE:
+                        break
+                    continue
+                streak = 0
                 if options:
                     found += 1
                 order = db.get_order(conn, order_id)  # re-read: you may be ticking things meanwhile
                 for i in order["items"]:
                     if i["key"] == key:
-                        i["options"] = options[:PREVIEW_OPTIONS + 1]
+                        i["options"] = options
                 db.save_order_items(conn, order_id, order["items"])
                 page.wait_for_timeout(int(random.uniform(*PAUSE_BETWEEN_ITEMS) * 1000))
             shot = _snapshot(page, order_id, "preview") if todo and not found else None
             ctx.close()
     except Exception as e:
-        finish(ok=False, error=f"Stopped: {e.__class__.__name__}. Is the cart filler window still open? "
-                               "Close it and try again.")
+        finish(ok=False, found=found, error=f"Stopped: {e.__class__.__name__}: {str(e)[:150]}")
+        return 1
+    if streak >= FAIL_STREAK_PAUSE:
+        finish(ok=False, found=found, looked_up=len(todo), failed=failed,
+               error=f"Stopped after {streak} items in a row couldn't be loaded ({', '.join(failed[-streak:])}). "
+                     "Amazon may be slow — press the button again to carry on where it stopped.")
         return 1
     if todo and not found:
         # Nothing readable at all: say so, with a picture of what Amazon showed.
@@ -693,7 +761,7 @@ def preview_order(order_id: int, headless: bool = True, profile_dir: str | None 
                error="I couldn't read any products from Amazon's search results. Amazon may show "
                      "a hidden browser a different page — try it with the browser showing.")
         return 1
-    finish(ok=True, found=found, looked_up=len(todo))
+    finish(ok=True, found=found, looked_up=len(todo), failed=failed)
     print(f"Found products for {found} of {len(todo)} item(s).")
     return 0
 

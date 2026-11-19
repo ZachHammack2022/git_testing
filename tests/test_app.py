@@ -337,7 +337,7 @@ def test_product_preview_choose_and_estimate(client, app):
     page = client.get(f"/orders/{oid}").get_data(as_text=True)
     assert "≈ $2.50" in page and "for 1 of" in page
     assert "<b>choice" not in page  # option data is escaped
-    assert "Refresh products" in page
+    assert "Look up the rest (" in page
 
     r = client.post(f"/orders/{oid}/items/{a['key']}/choose", json={"asin": "B0AAAAAAA2"})
     d = r.get_json()
@@ -407,3 +407,32 @@ def test_preview_outcome_is_reported(client, app, monkeypatch):
     page = client.get(f"/orders/{oid}").get_data(as_text=True)
     assert "read any products" in page and "Preview with the browser showing" in page
     assert "/autofill/shot/preview.png" in page
+
+
+def test_saved_product_is_always_shown_first(client, app):
+    from recipe_planner import ordering
+
+    oid = _order_id(client)
+    conn = db.connect(app.config["DB_FILE"])
+    order = db.get_order(conn, oid)
+    a, b, c = order["items"][:3]
+    # a: your pick wasn't among the results (its page couldn't be read): still shown, first.
+    a.update(has_pick=True, url="https://www.amazon.com/dp/B0PICK0001?x=1",
+             pick_label="auto-picked: Gotham Greens Butterhead",
+             options=[{"asin": "B0OTHER001", "title": "Other lettuce", "image": "", "price": 2.0, "unit_price": ""}])
+    b["options"] = []          # searched, nothing found
+    c.pop("options", None)     # never looked up
+    db.save_order_items(conn, oid, order["items"])
+
+    item = db.get_order(conn, oid)["items"][0]
+    shown = ordering.display_options(item)
+    assert [o["asin"] for o in shown] == ["B0PICK0001", "B0OTHER001"]
+    assert shown[0]["pick"] and shown[0]["title"] == "Gotham Greens Butterhead"
+    assert ordering.chosen_option(item)["asin"] == "B0PICK0001"
+
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert "No Whole Foods results for" in page
+    assert "Not looked up yet" in page
+    assert "Look up the rest (" in page and 'name="refresh"' not in page
+    r = client.post(f"/orders/{oid}/items/{a['key']}/choose", json={"asin": "B0PICK0001"})
+    assert r.status_code == 200

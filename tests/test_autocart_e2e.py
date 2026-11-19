@@ -73,8 +73,14 @@ class Fake(http.server.BaseHTTPRequestHandler):
             CLICKS.append("checkpoint-shown")
             body = (f"<meta http-equiv='refresh' content='4;url={nxt}'>"
                     f"<p>To continue, please click the button below.</p><a href='/never'><button>Continue shopping</button></a>")
+        elif u.path == "/s" and parse_qs(u.query)["k"][0] == "broken":
+            self.close_connection = True  # the page fails to load at all
+            return
         elif u.path == "/s":
             body = search_page(parse_qs(u.query)["k"][0])
+        elif u.path == "/dp/B0CHATXXXX":  # a product page whose first heading isn't the product
+            body = ("<title>Amazon.com: Bagged Hass Avocados, 6 Count : Grocery &amp; Gourmet Food</title>"
+                    "<h1>Chat history</h1><img id='landingImage' src='https://m.media-amazon.com/images/I/avo.jpg'>")
         elif u.path.startswith("/dp/"):
             asin = u.path.split("/")[-1]
             body = (f"<span id='productTitle'>Picked product {asin}</span>"
@@ -295,3 +301,25 @@ def test_preview_reads_options_and_your_pick(fake_amazon, tmp_path):
     st = autocart.read_status(oid)
     assert st["preview"]["ok"] and st["preview"]["found"] == 1 and st["state"] == "done"
     assert not CLICKS or set(CLICKS) <= {"checkpoint-shown"}  # looked, never added anything
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_preview_keeps_going_and_always_shows_your_pick(fake_amazon, tmp_path):
+    conn, oid = _order(fake_amazon, ["avocado", "broken", "celery"])
+    order = db.get_order(conn, oid)
+    order["items"][0].update(url=f"{fake_amazon}/dp/B0CHATXXXX", has_pick=True,
+                             pick_label="auto-picked: Bagged Hass Avocados")
+    order["items"][2].update(url=f"{fake_amazon}/dp/B0CELERYXX", has_pick=True,
+                             pick_label="auto-picked: Organic Celery")
+    db.save_order_items(conn, oid, order["items"])
+
+    assert autocart.preview_order(oid, headless=True, profile_dir=str(tmp_path / "profile")) == 0
+    avocado, broken, celery = db.get_order(conn, oid)["items"]
+    mine = avocado["options"][0]
+    assert mine["pick"] and mine["asin"] == "B0CHATXXXX"
+    assert mine["title"] == "Bagged Hass Avocados, 6 Count"  # from the page title, not "Chat history"
+    assert mine["image"].endswith("avo.jpg")
+    assert "options" not in broken  # failed to load: left for "Look up the rest"
+    assert celery["options"][0]["asin"] == "B0CELERYXX"  # kept going after the failure
+    st = autocart.read_status(oid)["preview"]
+    assert st["ok"] and st["found"] == 2 and st["failed"] == ["broken"]

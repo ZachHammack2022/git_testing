@@ -119,9 +119,14 @@
       {%- elif pv.error %}{{ pv.error }}
       {%- elif pv.at %}Found products for {{ pv.found }} of {{ pv.looked_up }} item{{ 's' if pv.looked_up != 1 }}.{% endif %}</span>
     <form method="post" action="{{ url_for('preview_order', order_id=order.id) }}" style="margin-left:auto" class="row">
-      {% if order['items']|selectattr('options')|list %}<input type="hidden" name="refresh" value="1">{% endif %}
       {% set busy = autofill.state == 'previewing' or autofill.pending_preview %}
-      <button type="submit" id="preview-btn" {{ 'disabled' if busy or autofill_active }}>{{ '🔍 Looking up…' if busy else ('🔍 Refresh products' if order['items']|selectattr('options')|list else '🔍 Preview products') }}</button>
+      {% if missing and looked_up %}
+      <button type="submit" id="preview-btn" {{ 'disabled' if busy or autofill_active }}>{{ '🔍 Looking up…' if busy else '🔍 Look up the rest (' ~ missing ~ ')' }}</button>
+      {% elif not missing %}
+      <button type="submit" id="preview-btn" name="refresh" value="1" {{ 'disabled' if busy or autofill_active }}>{{ '🔍 Looking up…' if busy else '🔍 Refresh products' }}</button>
+      {% else %}
+      <button type="submit" id="preview-btn" {{ 'disabled' if busy or autofill_active }}>{{ '🔍 Looking up…' if busy else '🔍 Preview products' }}</button>
+      {% endif %}
       {% if pv.error %}<button type="submit" name="show" value="1" class="small">Preview with the browser showing</button>{% endif %}
       {% if pv.shot %}<a class="small" href="{{ url_for('autofill_shot', order_id=order.id, name=pv.shot) }}" target="_blank">what I saw</a>{% endif %}
     </form>
@@ -142,13 +147,14 @@
         {% if it.amount %}<span class="muted"> — {{ it.amount }}</span>{% endif %}
         {% if it.recipes and it.recipes[0] in ('always buy', 'added') %}<span class="pill">{{ it.recipes[0] }}</span>{% endif %}
         {% if it.has_pick %}<span class="pill pick-pill">your usual{% if it.pick_label %}: {{ it.pick_label }}{% endif %}</span>{% endif %}
-        {% if it.options %}
+        {% set opts = shown[it.key] %}
+        {% if opts %}
         {% set ch = chosen[it.key] %}
-        <div class="product" data-options='{{ it.options|tojson|forceescape }}' data-chosen="{{ ch.asin if ch else '' }}" data-start="{{ it.options.index(ch) if ch in it.options else 0 }}">
+        <div class="product" data-options='{{ opts|tojson|forceescape }}' data-chosen="{{ ch.asin if ch else '' }}" data-start="0">
           <img alt="" loading="lazy" referrerpolicy="no-referrer">
           <div class="pinfo">
             <a class="ptitle small" target="_blank" rel="noopener"></a>
-            <div class="small"><strong class="pprice"></strong> <span class="muted punit"></span> <span class="pill pmine" hidden>✓ will be added</span></div>
+            <div class="small"><strong class="pprice"></strong> <span class="muted punit"></span> <span class="pill pmine" hidden>✓ will be added</span> <span class="pill pyours" hidden>your pick</span></div>
             <div class="row small pnav">
               <button type="button" class="pprev" aria-label="Previous product">‹</button>
               <span class="muted pcount"></span>
@@ -157,6 +163,10 @@
             </div>
           </div>
         </div>
+        {% elif 'options' in it %}
+        <div class="muted small">No Whole Foods results for “{{ it.name }}”. Use “change product” to paste a link.</div>
+        {% elif looked_up %}
+        <div class="muted small">Not looked up yet — press “Look up the rest” above.</div>
         {% endif %}
         <details>
           <summary class="small">{{ 'change product' if it.has_pick else 'save product' }}</summary>
@@ -264,6 +274,7 @@ document.querySelectorAll('.product').forEach(box => {
     q('.pprice').textContent = money(o.price);
     q('.punit').textContent = o.unit_price ? `(${o.unit_price})` : '';
     q('.pcount').textContent = `${i + 1} of ${opts.length}`;
+    q('.pyours').hidden = !o.pick;
     const mine = o.asin === box.dataset.chosen;
     q('.pmine').hidden = !mine; q('.puse').hidden = mine;
     q('.pprev').disabled = i === 0; q('.pnext').disabled = i === opts.length - 1;
@@ -277,6 +288,7 @@ document.querySelectorAll('.product').forEach(box => {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({asin: opts[i].asin})});
       const d = await res.json();
       box.dataset.chosen = opts[i].asin;
+      opts.forEach(o => { o.pick = o.asin === opts[i].asin; });
       li.dataset.url = `https://www.amazon.com/dp/${opts[i].asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
       li.querySelector('a.name').href = li.dataset.url;
       let pill = li.querySelector('.pick-pill');
