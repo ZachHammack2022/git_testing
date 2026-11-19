@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     tags TEXT DEFAULT '[]',         -- JSON list of strings
     source TEXT DEFAULT 'library',  -- library | ai | manual
     archived INTEGER DEFAULT 0,     -- 1 = never suggest again
+    image TEXT DEFAULT '',          -- photo URL, or /uploads/<file> for one you uploaded
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -121,6 +122,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE orders ADD COLUMN total REAL")
     if "leftovers" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
+    recipe_cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)")}
+    if "image" not in recipe_cols:  # photo URL, or /uploads/<file> for one you uploaded
+        conn.execute("ALTER TABLE recipes ADD COLUMN image TEXT DEFAULT ''")
     plan_cols = {r["name"] for r in conn.execute("PRAGMA table_info(plans)")}
     if "prep" not in plan_cols:  # JSON: {"done": [task ids], "ai": {...saved Claude prep plan}}
         conn.execute("ALTER TABLE plans ADD COLUMN prep TEXT DEFAULT '{}'")
@@ -195,7 +199,7 @@ def _recipe_row(row) -> dict | None:
 def add_recipe(conn, r: dict, source: str = "manual") -> int:
     cur = conn.execute(
         "INSERT INTO recipes(title, description, cuisine, protein, servings, prep_minutes,"
-        " ingredients, steps, tags, source) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " ingredients, steps, tags, source, image) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (
             r["title"].strip(),
             r.get("description", ""),
@@ -207,6 +211,7 @@ def add_recipe(conn, r: dict, source: str = "manual") -> int:
             json.dumps(r.get("steps", [])),
             json.dumps(r.get("tags", [])),
             source,
+            r.get("image") or "",
         ),
     )
     conn.commit()
@@ -216,7 +221,7 @@ def add_recipe(conn, r: dict, source: str = "manual") -> int:
 def update_recipe(conn, recipe_id: int, r: dict) -> None:
     conn.execute(
         "UPDATE recipes SET title=?, description=?, cuisine=?, protein=?, servings=?,"
-        " prep_minutes=?, ingredients=?, steps=?, tags=? WHERE id=?",
+        " prep_minutes=?, ingredients=?, steps=?, tags=?, image=COALESCE(?, image) WHERE id=?",
         (
             r["title"].strip(),
             r.get("description", ""),
@@ -227,9 +232,15 @@ def update_recipe(conn, recipe_id: int, r: dict) -> None:
             json.dumps(r.get("ingredients", [])),
             json.dumps(r.get("steps", [])),
             json.dumps(r.get("tags", [])),
+            r.get("image"),  # None keeps the current photo
             recipe_id,
         ),
     )
+    conn.commit()
+
+
+def set_recipe_image(conn, recipe_id: int, image: str) -> None:
+    conn.execute("UPDATE recipes SET image=? WHERE id=?", (image, recipe_id))
     conn.commit()
 
 

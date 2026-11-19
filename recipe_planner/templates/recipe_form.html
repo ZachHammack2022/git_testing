@@ -21,6 +21,7 @@
 </form>
 {% endif %}
 <form method="post" action="{{ action }}" class="card">
+  <input type="hidden" name="image" value="{{ r.image if r and r.image else '' }}">
   <label for="t">Title</label>
   <input type="text" id="t" name="title" value="{{ r.title if r else '' }}" required style="width:100%">
   <label for="d">Short description</label>

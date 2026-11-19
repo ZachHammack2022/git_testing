@@ -7,9 +7,10 @@ import json
 import os
 import re
 import secrets
+from pathlib import Path
 
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
-                   send_file, url_for)
+                   send_file, send_from_directory, url_for)
 
 from . import ai, autocart, db, grocery, importer, ordering, planner, prep
 
@@ -674,6 +675,7 @@ def create_app(db_file: str | None = None) -> Flask:
             "ingredients": ingredients,
             "steps": steps,
             "tags": [t.strip().lower() for t in form.get("tags", "").split(",") if t.strip()],
+            "image": form.get("image") if "image" in form else None,
         }
 
     @app.route("/recipes/new", methods=["GET", "POST"])
@@ -774,6 +776,39 @@ def create_app(db_file: str | None = None) -> Flask:
         flash("Here's the recipe with your notes worked in. Review and save, or go back to keep the original.", "info")
         return render_template("recipe_form.html", r=dict(revised, id=recipe_id),
                                action=url_for("edit_recipe", recipe_id=recipe_id))
+
+    PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+    def _upload_dir() -> Path:
+        d = Path(app.config["DB_FILE"]).resolve().parent / "uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @app.get("/uploads/<path:name>")
+    def uploaded(name):
+        return send_from_directory(_upload_dir(), name, max_age=86400)
+
+    @app.post("/recipes/<int:recipe_id>/photo")
+    def recipe_photo(recipe_id):
+        conn = get_conn()
+        db.get_recipe(conn, recipe_id) or abort(404)
+        if request.form.get("remove"):
+            db.set_recipe_image(conn, recipe_id, "")
+            flash("Photo removed.", "info")
+            return redirect(url_for("recipe", recipe_id=recipe_id))
+        f = request.files.get("photo")
+        data = f.read() if f else b""
+        ext = PHOTO_TYPES.get(f.mimetype if f else "")
+        if not data or not ext:
+            flash("Choose a JPEG, PNG or WebP photo.", "error")
+        elif len(data) > 8 * 1024 * 1024:
+            flash("That photo is over 8 MB. Try a smaller one.", "error")
+        else:
+            name = f"recipe-{recipe_id}-{secrets.token_hex(4)}{ext}"
+            (_upload_dir() / name).write_bytes(data)
+            db.set_recipe_image(conn, recipe_id, f"/uploads/{name}")
+            flash("Photo saved.", "info")
+        return redirect(url_for("recipe", recipe_id=recipe_id))
 
     @app.route("/recipes/<int:recipe_id>/edit", methods=["GET", "POST"])
     def edit_recipe(recipe_id):

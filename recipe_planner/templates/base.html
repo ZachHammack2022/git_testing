@@ -4,22 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Meal Planner{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="manifest" href="{{ url_for('manifest') }}">
   <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
-  <meta name="theme-color" content="#2f7d4f">
+  <meta name="theme-color" content="#13261d">
 </head>
 <body>
 <header class="top">
+  {% set ep = request.endpoint or '' %}
   <nav>
     <a class="brand" href="{{ url_for('home') }}">🥕 Meal Planner</a>
-    {% set ep = request.endpoint or '' %}
-    <a href="{{ url_for('home') }}" class="{{ 'active' if ep == 'home' }}">This week</a>
-    <a href="{{ url_for('recipes') }}" class="{{ 'active' if 'recipe' in ep }}">Recipes</a>
-    <a href="{{ url_for('kitchen') }}" class="{{ 'active' if 'kitchen' in ep }}">Kitchen</a>
-    <a href="{{ url_for('history') }}" class="{{ 'active' if ep == 'history' }}">History</a>
-    <a href="{{ url_for('settings') }}" class="{{ 'active' if ep == 'settings' }}">Settings</a>
+    <span class="tabs">
+      <a href="{{ url_for('home') }}" class="{{ 'active' if ep in ('home', 'show_plan', 'cook', 'shopping', 'show_order', 'prep_page', 'feedback') }}"><span class="ico">🗓️</span>This week</a>
+      <a href="{{ url_for('recipes') }}" class="{{ 'active' if 'recipe' in ep or ep == 'discover' }}"><span class="ico">🍽️</span>Recipes</a>
+      <a href="{{ url_for('kitchen') }}" class="{{ 'active' if 'kitchen' in ep }}"><span class="ico">🥬</span>Kitchen</a>
+      <a href="{{ url_for('history') }}" class="minor {{ 'active' if ep == 'history' }}"><span class="ico">📈</span>History</a>
+      <a href="{{ url_for('settings') }}" class="minor {{ 'active' if ep == 'settings' }}"><span class="ico">⚙️</span>Settings</a>
+    </span>
   </nav>
 </header>
 <main>
