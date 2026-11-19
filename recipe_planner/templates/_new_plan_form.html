@@ -1,5 +1,4 @@
-<form method="post" action="{{ url_for('new_plan') }}" class="card">
-  <h3>Plan a week</h3>
+<form method="post" action="{{ url_for('new_plan') }}" style="margin-top:12px">
   <div class="row">
     <label class="inline">Week of <input type="date" name="week_start" value="{{ next_week }}"></label>
     {% if ai_available %}

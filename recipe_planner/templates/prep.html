@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Prep · {{ plan.week_start|pretty_date }}{% endblock %}
 {% block content %}
-<div class="spread">
+<a class="back small noprint" href="{{ url_for('show_plan', plan_id=plan.id) }}">Back to the plan</a>
+<div class="pagehead">
   <div>
     <h1>Prep plan</h1>
-    <p class="muted small">Week of {{ plan.week_start|pretty_date }} · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">plan</a>
-      · {{ 'Written by Claude' if prep.source == 'claude' else 'Built from your recipes' }}</p>
+    <p class="muted">Week of {{ plan.week_start|pretty_date }}. {{ 'Written by Claude.' if prep.source == 'claude' else 'Built from your recipes.' }}</p>
   </div>
   <div class="row noprint">
     {% if ai_available %}
@@ -21,6 +21,7 @@
 </div>
 {% if stale %}<div class="flash error">The dinners changed since Claude wrote this. Redo it to match the new plan.</div>{% endif %}
 
+<div class="groups">
 {% for s in prep.sessions %}
 <div class="card">
   <h3 style="margin:0">{{ s.title }}</h3>
@@ -35,8 +36,9 @@
   </ul>
 </div>
 {% else %}
-<div class="card"><p class="muted" style="margin:0">Nothing to prep ahead this week — every dinner is quick enough to do on the day{{ ', or already cooked' if plan.meals }}.{% if ai_available %} Claude may still find a few things.{% endif %}</p></div>
+<div class="empty">Nothing to prep ahead this week — every dinner is quick enough to do on the day{{ ', or already cooked' if plan.meals }}.{% if ai_available %} Claude may still find a few things.{% endif %}</div>
 {% endfor %}
+</div>
 
 {% if prep.night_before %}
 <div class="card">

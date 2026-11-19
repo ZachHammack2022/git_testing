@@ -1,0 +1,45 @@
+# Photo credits
+
+From Wikimedia Commons.
+
+- **Sheet-Pan Lemon Herb Chicken & Potatoes**: [Curry roasted cauliflower and haricots verts, roasted garlic celeriac puree, beef bourguignon, and chicken thigh with sweet potato and apple - Boston, MA.jpg](https://commons.wikimedia.org/wiki/File:Curry_roasted_cauliflower_and_haricots_verts,_roasted_garlic_celeriac_puree,_beef_bourguignon,_and_chicken_thigh_with_sweet_potato_and_apple_-_Boston,_MA.jpg) by Daderot, CC0
+- **Beef & Broccoli Stir-Fry**: [Beef and broccoli stir fry.jpg](https://commons.wikimedia.org/wiki/File:Beef_and_broccoli_stir_fry.jpg) by Joy, CC BY 2.0
+- **Black Bean & Sweet Potato Tacos**: [Roasted sweet potato + black bean tacos (7784822910).jpg](https://commons.wikimedia.org/wiki/File:Roasted_sweet_potato_%2B_black_bean_tacos_(7784822910).jpg) by Karen and Brad Emerson, CC BY 2.0
+- **Salmon with Miso Glaze & Bok Choy**: [2022-01-29 20 53 20 Blackened Cajun Salmon (6 oz. blackened and grilled salmon fillet with garlic mashed potatoes and steamed broccoli) at the Applebee's in Fair Lakes, Fairfax County, Virginia.jpg](https://commons.wikimedia.org/wiki/File:2022-01-29_20_53_20_Blackened_Cajun_Salmon_(6_oz._blackened_and_grilled_salmon_fillet_with_garlic_mashed_potatoes_and_steamed_broccoli)_at_the_Applebee%27s_in_Fair_Lakes,_Fairfax_County,_Virginia.jpg) by Famartin, CC BY-SA 4.0
+- **Spaghetti Bolognese**: [Spaghetti Bolognese Lokal K.jpg](https://commons.wikimedia.org/wiki/File:Spaghetti_Bolognese_Lokal_K.jpg) by Superbass, CC BY-SA 3.0
+- **Chickpea Spinach Curry**: [Chana masala (5727362126).jpg](https://commons.wikimedia.org/wiki/File:Chana_masala_(5727362126).jpg) by Johan Bichel Lindegaard from Copenhagen, Denmark, CC BY 2.0
+- **Turkey Taco Lettuce Wraps**: [Shanghai lettuce wraps from Auburn Alehouse.JPG](https://commons.wikimedia.org/wiki/File:Shanghai_lettuce_wraps_from_Auburn_Alehouse.JPG) by Ixfd64, CC BY-SA 3.0
+- **Shrimp Scampi Linguine**: [Shrimp scampi food.jpg](https://commons.wikimedia.org/wiki/File:Shrimp_scampi_food.jpg) by Jon Sullivan, Public domain
+- **Chicken Tikka Masala**: [Chicken Tikka Masala on White Plate with Spoon.jpg](https://commons.wikimedia.org/wiki/File:Chicken_Tikka_Masala_on_White_Plate_with_Spoon.jpg) by Lance Vanlewen, CC BY-SA 4.0
+- **Mushroom Risotto**: [Mushroom and Leek Risotto (49535206656).jpg](https://commons.wikimedia.org/wiki/File:Mushroom_and_Leek_Risotto_(49535206656).jpg) by spurekar, CC BY 2.0
+- **Greek Chicken Bowls**: [Chicken souvlaki at Hellenic 2.jpg](https://commons.wikimedia.org/wiki/File:Chicken_souvlaki_at_Hellenic_2.jpg) by Orderinchaos, CC BY-SA 4.0
+- **Pork Carnitas Bowls**: [Pork carnitas tacos (cropped).jpg](https://commons.wikimedia.org/wiki/File:Pork_carnitas_tacos_(cropped).jpg) by Jj saezdeo, CC BY-SA 4.0
+- **Thai Red Curry with Shrimp**: [Roast Duck Red Curry - Siam Siam 2025-09-07.jpg](https://commons.wikimedia.org/wiki/File:Roast_Duck_Red_Curry_-_Siam_Siam_2025-09-07.jpg) by Andy Li, CC0
+- **Classic Cheeseburgers & Oven Fries**: [Cheeseburger and fries 4.jpg](https://commons.wikimedia.org/wiki/File:Cheeseburger_and_fries_4.jpg) by Kurtkaiser, CC0
+- **Lentil Soup with Crusty Bread**: [Lentil Soup - Schnitzel & Co. 2026-05-16.jpg](https://commons.wikimedia.org/wiki/File:Lentil_Soup_-_Schnitzel_%26_Co._2026-05-16.jpg) by Andy Li, CC0
+- **Honey Garlic Pork Chops**: [Pork-Chop-Dinner-2009.jpg](https://commons.wikimedia.org/wiki/File:Pork-Chop-Dinner-2009.jpg) by Kham Tran - www.khamtran.com, CC BY-SA 3.0
+- **Veggie Fried Rice**: [Pork & Vegetable Fried Rice, Nov 2024.jpg](https://commons.wikimedia.org/wiki/File:Pork_%26_Vegetable_Fried_Rice,_Nov_2024.jpg) by Ralff Nestor Nacor, CC BY-SA 4.0
+- **Baked Cod with Herb Crumb**: [Baked cod fillet.jpg](https://commons.wikimedia.org/wiki/File:Baked_cod_fillet.jpg) by Tiia Monto, CC BY-SA 4.0
+- **Chicken Fajitas**: [Flickr elisart 324248450--Beef and chicken fajitas.jpg](https://commons.wikimedia.org/wiki/File:Flickr_elisart_324248450--Beef_and_chicken_fajitas.jpg) by Elisa Arteaga from Caracas, Venezuela, CC BY-SA 2.0
+- **Pesto Gnocchi with Cherry Tomatoes**: [Gnocchi al pesto - homemade.jpg](https://commons.wikimedia.org/wiki/File:Gnocchi_al_pesto_-_homemade.jpg) by Fuerteadventours, CC BY-SA 4.0
+- **Korean Beef Bulgogi Bowls**: [Korean.cuisine-Bulgogi-01.jpg](https://commons.wikimedia.org/wiki/File:Korean.cuisine-Bulgogi-01.jpg) by by ayustety, CC BY-SA 2.0
+- **Butternut Squash Mac & Cheese**: [Macaroni and cheese (2) (cropped).jpg](https://commons.wikimedia.org/wiki/File:Macaroni_and_cheese_(2)_(cropped).jpg) by Sumeet Jain from San Francisco, USA, CC BY-SA 2.0
+- **Moroccan Chicken & Couscous**: [Couscous with Chicken and Vegetable Stew.JPG](https://commons.wikimedia.org/wiki/File:Couscous_with_Chicken_and_Vegetable_Stew.JPG) by Miansari66, CC0
+- **Teriyaki Tofu & Veggie Stir-Fry**: [Stir-fry spinach with tofu - Golden white jade and Green Parrot (菠菜炒豆腐 - 金鑲白玉板，紅嘴綠鸚哥)(1).jpg](https://commons.wikimedia.org/wiki/File:Stir-fry_spinach_with_tofu_-_Golden_white_jade_and_Green_Parrot_(%E8%8F%A0%E8%8F%9C%E7%82%92%E8%B1%86%E8%85%90_-_%E9%87%91%E9%91%B2%E7%99%BD%E7%8E%89%E6%9D%BF%EF%BC%8C%E7%B4%85%E5%98%B4%E7%B6%A0%E9%B8%9A%E5%93%A5)(1).jpg) by NeoBatfreak, CC BY-SA 4.0
+- **Steak with Chimichurri & Roasted Potatoes**: [Steak with Chimichurri Sauce (13316528445).jpg](https://commons.wikimedia.org/wiki/File:Steak_with_Chimichurri_Sauce_(13316528445).jpg) by Dominic Lockyer, CC BY 2.0
+- **White Chicken Chili**: [Roasted Tomatillo and White Bean Chili.jpg](https://commons.wikimedia.org/wiki/File:Roasted_Tomatillo_and_White_Bean_Chili.jpg) by Thriving Vegetarian, CC BY 2.0
+- **Margherita Flatbread Pizzas & Caesar Salad**: [Margherita Originale.JPG](https://commons.wikimedia.org/wiki/File:Margherita_Originale.JPG) by Mario56, CC BY-SA 3.0
+- **Shakshuka with Feta & Crusty Bread**: [Shakshuka by Calliopejen1.jpg](https://commons.wikimedia.org/wiki/File:Shakshuka_by_Calliopejen1.jpg) by Calliopejen1, CC BY-SA 3.0
+- **Baja Fish Tacos with Lime Slaw**: [001 Tacos de carnitas, carne asada y al pastor.jpg](https://commons.wikimedia.org/wiki/File:001_Tacos_de_carnitas,_carne_asada_y_al_pastor.jpg) by Larry Miller, CC BY-SA 2.0
+- **Thai Basil Chicken (Pad Krapow)**: [Kao Rad Pad Kra-pao - Unithai 2023-07-08.jpg](https://commons.wikimedia.org/wiki/File:Kao_Rad_Pad_Kra-pao_-_Unithai_2023-07-08.jpg) by Andy Li, CC0
+- **Lemon Chicken Orzo**: [Paella - Pastan, Brighton 2024-01-24.jpg](https://commons.wikimedia.org/wiki/File:Paella_-_Pastan,_Brighton_2024-01-24.jpg) by Andy Li, CC0
+- **Sheet-Pan Sausage, Peppers & Gnocchi**: [Sausage and peppers.jpg](https://commons.wikimedia.org/wiki/File:Sausage_and_peppers.jpg) by Chuck Falzone, CC BY 2.0
+- **Black Bean Soup with Lime Crema**: [Black bean soup.jpg](https://commons.wikimedia.org/wiki/File:Black_bean_soup.jpg) by newton64, CC BY-SA 2.0
+- **Salmon Rice Bowls with Sesame Cucumber**: [Rice bowl topped with salmon and salmon egg (14904439935).jpg](https://commons.wikimedia.org/wiki/File:Rice_bowl_topped_with_salmon_and_salmon_egg_(14904439935).jpg) by pelican from Tokyo, Japan, CC BY-SA 2.0
+- **Chicken Caesar Wraps**: [Wegmans Chicken Caesar Wheat Wrap.jpeg](https://commons.wikimedia.org/wiki/File:Wegmans_Chicken_Caesar_Wheat_Wrap.jpeg) by Dough4872, CC BY-SA 4.0
+- **Japanese Chicken Curry**: [Beef curry rice 003.jpg](https://commons.wikimedia.org/wiki/File:Beef_curry_rice_003.jpg) by Ocdp, CC0
+- **Lamb Kofta with Tzatziki & Pita**: [Kofta Curry (cropped).JPG](https://commons.wikimedia.org/wiki/File:Kofta_Curry_(cropped).JPG) by Miansari66, CC0
+- **Vietnamese Lemongrass Pork Noodle Bowls**: [Bún Thịt Nướng Chả Giò.JPG](https://commons.wikimedia.org/wiki/File:B%C3%BAn_Th%E1%BB%8Bt_N%C6%B0%E1%BB%9Bng_Ch%E1%BA%A3_Gi%C3%B2.JPG) by Calvin Neonardi, CC BY-SA 3.0
+- **Pasta Primavera**: [Pasta primavera (1) (cropped).jpg](https://commons.wikimedia.org/wiki/File:Pasta_primavera_(1)_(cropped).jpg) by Stacy Spensley from San Diego, CC BY 2.0
+- **Beef & Bean Chili**: [Bowl of chili.jpg](https://commons.wikimedia.org/wiki/File:Bowl_of_chili.jpg) by Carstor, CC BY-SA 2.5
+- **Halloumi & Chickpea Salad Bowls**: [DSC04493edtrftu.jpg](https://commons.wikimedia.org/wiki/File:DSC04493edtrftu.jpg) by Khaled, CC BY-SA 4.0

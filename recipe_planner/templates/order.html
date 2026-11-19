@@ -3,10 +3,10 @@
 {% block content %}
 {% set total = order['items']|length %}
 {% set done = order['items']|selectattr('added')|list|length %}
-<div class="spread">
+<div class="pagehead">
   <div>
     <h1>Whole Foods order</h1>
-    <p class="muted small">
+    <p class="muted">
       {% if plan %}Week of {{ plan.week_start|pretty_date }} · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">plan</a> · {% endif %}
       {% if order.status == 'placed' %}Placed {{ order.placed_at|pretty_date }} ✓{% else %}Started {{ order.created_at|pretty_date }}{% endif %}
     </p>
@@ -135,9 +135,10 @@
   <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
 </div>
 
+<div class="groups">
 {% for cat, items in groups %}
 <div class="card">
-  <h3 style="text-transform:capitalize">{{ cat }}</h3>
+  <h3>{{ cat }}</h3>
   <ul class="items">
     {% for it in items %}
     <li id="item-{{ it.key|replace(' ', '-') }}" class="{{ 'done' if it.added }}" data-key="{{ it.key }}" data-url="{{ it.url }}">
@@ -186,6 +187,7 @@
   </ul>
 </div>
 {% endfor %}
+</div>
 
 <form method="post" action="{{ url_for('add_order_item', order_id=order.id) }}" class="card row">
   <input type="text" name="items" placeholder="Add something else: e.g. 1 dozen eggs, sparkling water" style="flex:1; min-width:220px">

@@ -1,0 +1,32 @@
+{# A big picture tile. Shows the recipe's photo, or a coloured illustrated tile when it has none. #}
+{% set TONES = {'chicken': ('#b8650f', '🍗'), 'beef': ('#a33a2b', '🥩'), 'pork': ('#b5546b', '🥓'),
+                'fish': ('#1f7a8c', '🐟'), 'shrimp': ('#d2603e', '🦐'), 'vegetarian': ('#3c8d4f', '🥦'),
+                'tofu': ('#6a7f2b', '🍲'), 'eggs': ('#a77a0e', '🍳'), 'lamb': ('#7a4a8c', '🍖'),
+                'turkey': ('#8c5a2b', '🦃')} %}
+{% macro tile(r, href, meta='', day=None, hero=False, banner=False, new=False, kicker='', cta_label='', dialog='', locked=False, anchor_id='') %}
+{% set tone = TONES.get((r.protein or '')|lower, ('#44566b', '🍽️')) %}
+<div {% if anchor_id %}id="{{ anchor_id }}" {% endif %}class="tile {{ 'locked' if locked }} {{ 'hero' if hero }} {{ 'banner' if banner }} {{ '' if r.image else 'noimg' }}" style="--t: {{ tone[0] }}">
+  {% if r.image %}<img src="{{ r.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+  {% endif %}
+  {% if day %}<span class="chip">{{ day }}</span>{% endif %}
+  {% if new %}<span class="chip new">New</span>{% endif %}
+  {% if locked %}<span class="lock-chip">{{ lock_icon() }}Locked</span>{% endif %}
+  <div class="body">
+    {% if kicker %}<div class="kicker">{{ kicker }}</div>{% endif %}
+    <h3 class="name">{% if dialog %}<a href="#{{ dialog }}" data-open="{{ dialog }}">{{ r.title }}</a>{% elif href %}<a href="{{ href }}">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}</h3>
+    {% if meta %}<div class="meta">{{ meta }}</div>{% endif %}
+    {% if cta_label %}<span class="cta-text">{{ cta_label }}</span>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro lock_icon(open=False) %}{% if open %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>{% else %}<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none"/></svg>{% endif %}{% endmacro %}
+
+{% macro thumb(r, day='') %}
+{% set tone = TONES.get((r.protein or '')|lower, ('#44566b', '')) %}
+<div class="thumb" style="--t: {{ tone[0] }}">
+  {% if r.image %}<img src="{{ r.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+  {% if day %}<span class="chip">{{ day }}</span>{% endif %}
+  <h3>{{ r.title }}</h3>
+</div>
+{% endmacro %}

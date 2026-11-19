@@ -1,19 +1,19 @@
 {% extends "base.html" %}
+{% from "_tile.html" import tile %}
 {% block title %}Cook · {{ r.title }}{% endblock %}
 {% block content %}
-<p class="small"><a href="{{ url_for('show_plan', plan_id=plan.id) }}">← {{ m.day }} · week of {{ plan.week_start|pretty_date }}</a></p>
-<h1>{{ r.title }}</h1>
-<p class="muted">{{ r.prep_minutes }} min · serves {{ m.servings }}{% if m.leftovers %} + {{ m.leftovers }} for leftovers 🥡{% endif %}{% if scaled %} <span class="pill">scaled from {{ r.servings }}</span>{% endif %}</p>
+<a class="back small" href="{{ url_for('show_plan', plan_id=plan.id) }}">Back to {{ m.day }}, week of {{ plan.week_start|pretty_date }}</a>
+{{ tile(r, None, banner=True, meta=r.prep_minutes ~ ' min, serves ' ~ m.servings ~ (' + ' ~ m.leftovers ~ ' for leftovers' if m.leftovers else '') ~ (', scaled from ' ~ r.servings if scaled else '')) }}
 {% if past_notes %}
-<div class="card" style="border-color: var(--accent)">
+<div class="card" style="border-color: var(--squash); border-width: 3px; margin-top: 16px">
   <h3>Your notes from last time</h3>
   <ul class="small" style="margin:0; padding-left:18px">
     {% for f in past_notes %}<li>{{ f.notes }} <span class="muted">— {{ f.created_at|pretty_date }}, {{ '★' * f.rating }}</span></li>{% endfor %}
   </ul>
 </div>
 {% endif %}
-<div class="grid cook">
-  <div class="card">
+<div class="recipe-cols cook">
+  <div class="ingredients">
     <h3>Ingredients</h3>
     <ul class="items">
       {% for i in ingredients %}
@@ -21,17 +21,17 @@
       {% endfor %}
     </ul>
   </div>
-  <div class="card" style="grid-column: span 2; min-width: 0">
-    <h3>Steps</h3>
-    <ul class="items">
+  <div>
+    <h2 style="margin-top:0">Steps</h2>
+    <ol class="big cookstep">
       {% for s in r.steps %}
-      <li><label class="inline" style="align-items:flex-start"><input type="checkbox" style="margin-top:5px"> <span class="name"><strong>{{ loop.index }}.</strong> {{ s }}</span></label></li>
+      <li><label><input type="checkbox"> <span class="name">{{ s }}</span></label></li>
       {% endfor %}
-    </ul>
+    </ol>
   </div>
 </div>
 
-<form method="post" action="{{ url_for('save_meal_feedback', meal_id=m.id) }}" class="card">
+<form method="post" action="{{ url_for('save_meal_feedback', meal_id=m.id) }}" class="card narrow" style="margin-top:28px">
   <h3>How did it turn out?</h3>
   <div class="stars" role="radiogroup" aria-label="Rating">
     {% for n in [5,4,3,2,1] %}
@@ -39,9 +39,9 @@
       <label for="r-{{ n }}" title="{{ n }} star{{ 's' if n > 1 }}">★</label>
     {% endfor %}
   </div>
-  <div class="row small" style="margin-top:6px">
+  <div class="seg">
     {% for val, label in [('yes','Make again'),('tweak','Make again, with changes'),('no','Never again')] %}
-    <label class="inline"><input type="radio" name="again" value="{{ val }}" {{ 'checked' if (m.fb_make_again or 'yes') == val }}> {{ label }}</label>
+    <label><input type="radio" name="again" value="{{ val }}" {{ 'checked' if (m.fb_make_again or 'yes') == val }}> {{ label }}</label>
     {% endfor %}
   </div>
   <input type="text" name="notes" value="{{ m.fb_notes or '' }}" placeholder="Notes for next time" style="width:100%; margin-top:8px">

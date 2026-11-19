@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Discover{% endblock %}
 {% block content %}
-<h1>Discover new recipes</h1>
+<div class="pagehead"><div><h1>Get ideas from Claude</h1><p class="muted">Four new dinners based on what you rate well. Keep the ones you like.</p></div></div>
 {% if not ai_available %}
   <p class="muted">This uses Claude to suggest recipes based on your ratings. Set <code>ANTHROPIC_API_KEY</code> and restart the app to use it.</p>
 {% else %}
-<form method="post" class="card row">
+<form method="post" class="card row narrow">
   <input type="text" name="request" placeholder="Optional: in the mood for… e.g. cozy soups, something Greek" style="flex:1; min-width:220px">
   <button class="primary" type="submit" onclick="this.textContent='Thinking…'">Suggest 4 recipes</button>
 </form>
 {% endif %}
+<div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); margin-top:16px">
 {% for r in ideas %}
-<div class="card">
+<div class="card" style="margin:0">
   <div class="spread">
     <div>
       <h3>{{ r.title }}</h3>
@@ -30,6 +31,7 @@
   </details>
 </div>
 {% endfor %}
+</div>
 {% endblock %}
 {% block scripts %}
 <script>

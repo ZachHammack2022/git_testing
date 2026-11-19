@@ -113,6 +113,16 @@ def guess_protein(ingredient_names: list[str]) -> str:
     return "vegetarian"
 
 
+def _image_url(img) -> str:
+    """schema.org `image` is a URL, a list, or an ImageObject; return one http(s) URL or ''."""
+    if isinstance(img, list):
+        img = img[0] if img else ""
+    if isinstance(img, dict):
+        img = img.get("url") or ""
+    img = str(img).strip()
+    return img if img.startswith(("http://", "https://")) else ""
+
+
 def parse_jsonld(page: str) -> dict | None:
     blocks = re.findall(
         r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>", page, re.S | re.I
@@ -138,6 +148,7 @@ def parse_jsonld(page: str) -> dict | None:
         minutes = _iso_minutes(node.get("totalTime")) or (
             _iso_minutes(node.get("prepTime")) + _iso_minutes(node.get("cookTime")))
         return {
+            "image": _image_url(node.get("image")),
             "title": _clean(node.get("name")) or "Imported recipe",
             "description": _clean(node.get("description"))[:300],
             "cuisine": _clean(cuisine),
