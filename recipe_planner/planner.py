@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 
-from . import costing, db
+from . import costing, db, nutrition
 from .grocery import normalize_name
 
 
@@ -90,7 +90,7 @@ def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
     max_prep = int(settings.get("max_prep_minutes") or 0)
     if max_prep and recipe.get("prep_minutes", 0) > max_prep:
         score -= 1.5
-    return score + budget_adjust(cost, per_meal_budget)
+    return score + budget_adjust(cost, per_meal_budget) + nutrition.goal_adjust(nutrition.current(recipe), settings)
 
 
 PERISHABLE = {"produce", "dairy & eggs", "bakery"}

@@ -39,6 +39,11 @@
       <p class="muted small">Claude isn't configured. Set <code>ANTHROPIC_API_KEY</code> before starting the app to get fresh recipe ideas. The built-in planner uses your library and ratings.</p>
       <input type="hidden" name="use_ai" value="{{ 'on' if s.use_ai else '' }}">
     {% endif %}
+    <label for="mp2">Protein goal per dinner (grams)</label>
+    <input type="number" id="mp2" name="min_protein" min="0" step="5" value="{{ s.min_protein or '' }}" placeholder="No goal" style="width:140px">
+    <label for="mc">Calorie limit per dinner</label>
+    <input type="number" id="mc" name="max_calories" min="0" step="50" value="{{ s.max_calories or '' }}" placeholder="No limit" style="width:140px">
+    <p class="muted small" style="margin:4px 0 0">The planner favors dinners that meet these. It needs nutrition calculated for your recipes: use "Calculate the rest" on the Recipes page. Numbers come from USDA FoodData Central{% if not usda_key %}; set a free <code>USDA_API_KEY</code> (fdc.nal.usda.gov) before starting the app, since the shared demo key allows only about 10 lookups an hour{% endif %}.</p>
     <label for="budget" id="budget">Weekly grocery budget ($)</label>
     <input type="number" id="budget" name="weekly_budget" min="0" step="5" value="{{ '%.0f'|format(s.weekly_budget) if s.weekly_budget else '' }}" placeholder="No limit" style="width:140px">
     <p class="muted small" style="margin:4px 0 0">When set, plans lean toward cheaper recipes and the plan page warns you if the week runs over. Costs are estimates that get more accurate as you preview products on orders.</p>

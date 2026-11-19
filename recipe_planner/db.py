@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     source TEXT DEFAULT 'library',  -- library | ai | manual
     archived INTEGER DEFAULT 0,     -- 1 = never suggest again
     image TEXT DEFAULT '',          -- photo URL, or /uploads/<file> for one you uploaded
+    nutrition TEXT DEFAULT '',      -- JSON per-serving nutrition (see nutrition.py); '' = not calculated
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -66,6 +67,11 @@ CREATE TABLE IF NOT EXISTS product_picks (
     label TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS food_cache (
+    name TEXT PRIMARY KEY,          -- normalized ingredient name | 'can'
+    data TEXT NOT NULL              -- JSON USDA match, or null if nothing fit
+);
+
 CREATE TABLE IF NOT EXISTS price_book (
     name TEXT PRIMARY KEY,          -- normalized ingredient name
     price REAL NOT NULL,            -- what one purchase cost in the product preview
@@ -97,6 +103,8 @@ DEFAULT_SETTINGS = {
     "always_buy": "",        # newline-separated grocery lines added to every order
     "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}
     "weekly_budget": 0,      # dollars; 0 = no budget
+    "min_protein": 0,        # grams of protein per dinner the planner should aim for; 0 = no goal
+    "max_calories": 0,       # calories per dinner to stay under; 0 = no limit
     "on_hand": [],           # [{"name", "added"}] fresh food you have now (see on_hand())
 }
 
@@ -138,6 +146,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     recipe_cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)")}
     if "image" not in recipe_cols:  # photo URL, or /uploads/<file> for one you uploaded
         conn.execute("ALTER TABLE recipes ADD COLUMN image TEXT DEFAULT ''")
+    if "nutrition" not in recipe_cols:
+        conn.execute("ALTER TABLE recipes ADD COLUMN nutrition TEXT DEFAULT ''")
     plan_cols = {r["name"] for r in conn.execute("PRAGMA table_info(plans)")}
     if "prep" not in plan_cols:  # JSON: {"done": [task ids], "ai": {...saved Claude prep plan}}
         conn.execute("ALTER TABLE plans ADD COLUMN prep TEXT DEFAULT '{}'")
@@ -216,6 +226,7 @@ def _recipe_row(row) -> dict | None:
     d["ingredients"] = json.loads(d["ingredients"])
     d["steps"] = json.loads(d["steps"])
     d["tags"] = json.loads(d["tags"] or "[]")
+    d["nutrition"] = json.loads(d["nutrition"]) if d.get("nutrition") else None
     return d
 
 
@@ -264,6 +275,11 @@ def update_recipe(conn, recipe_id: int, r: dict) -> None:
 
 def set_recipe_image(conn, recipe_id: int, image: str) -> None:
     conn.execute("UPDATE recipes SET image=? WHERE id=?", (image, recipe_id))
+    conn.commit()
+
+
+def set_recipe_nutrition(conn, recipe_id: int, nutrition: dict | None) -> None:
+    conn.execute("UPDATE recipes SET nutrition=? WHERE id=?", (json.dumps(nutrition) if nutrition else "", recipe_id))
     conn.commit()
 
 

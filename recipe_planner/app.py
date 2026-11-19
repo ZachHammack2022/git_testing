@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, send_from_directory, url_for)
 
-from . import ai, autocart, cookmode, costing, db, grocery, importer, leftovers, ordering, planner, prep
+from . import ai, autocart, cookmode, costing, db, nutrition, usda, grocery, importer, leftovers, ordering, planner, prep
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -144,8 +144,13 @@ def create_app(db_file: str | None = None) -> Flask:
         budget = float(settings.get("weekly_budget") or 0)
         week_cost = costing.cost_of(plan["meals"], book, have) if plan["meals"] else 0.0
         priciest = max((m for m in plan["meals"] if not m["locked"]), key=lambda m: meal_costs[m["id"]], default=None)
+        with_nut = [nutrition.current(m["recipe"]) for m in plan["meals"]]
+        with_nut = [n["per_serving"] for n in with_nut if n]
+        nut = ({k: sum(n[k] for n in with_nut) / len(with_nut) for k in nutrition.KEYS} | {"count": len(with_nut)}
+               if with_nut else None)
         return render_template(
-            "plan.html", plan=plan, recipes=db.list_recipes(conn),
+            "plan.html", plan=plan, recipes=db.list_recipes(conn), nut=nut, settings=settings,
+            nut_of={m["id"]: nutrition.current(m["recipe"]) for m in plan["meals"]},
             free_days=[d for d in db.DAYS if d not in used_days],
             order=db.order_for_plan(conn, plan_id), budget=budget, week_cost=week_cost,
             meal_costs=meal_costs, priciest=priciest,
@@ -688,7 +693,10 @@ def create_app(db_file: str | None = None) -> Flask:
             items.sort(key=lambda r: r["prep_minutes"] or 999)
         elif sort == "newest":
             items.sort(key=lambda r: -r["id"])
+        all_active = db.list_recipes(conn)
         return render_template("recipes.html", recipes=items, stats=stats, q=q,
+                               nut_have=sum(1 for r in all_active if nutrition.current(r)), nut_total=len(all_active),
+                               nut_fill=nutrition.fill_status(), usda_key=usda.has_real_key(),
                                show_archived=show_archived, sort=sort,
                                untried=request.args.get("untried") == "1")
 
@@ -697,7 +705,8 @@ def create_app(db_file: str | None = None) -> Flask:
         conn = get_conn()
         r = db.get_recipe(conn, recipe_id) or abort(404)
         fb = db.recipe_feedback(conn, recipe_id)
-        return render_template("recipe.html", r=r, feedback=fb,
+        return render_template("recipe.html", r=r, feedback=fb, nut=nutrition.current(r),
+                               usda_key=usda.has_real_key(),
                                has_notes=any(f["notes"] for f in fb),
                                stats=db.recipe_stats(conn).get(recipe_id, {}),
                                latest=db.latest_plan(conn))
@@ -851,6 +860,35 @@ def create_app(db_file: str | None = None) -> Flask:
             flash("Photo saved.", "info")
         return redirect(url_for("recipe", recipe_id=recipe_id))
 
+    @app.post("/recipes/<int:recipe_id>/nutrition")
+    def recipe_nutrition(recipe_id):
+        conn = get_conn()
+        db.get_recipe(conn, recipe_id) or abort(404)
+        try:
+            res = nutrition.calculate(conn, recipe_id)
+            miss = f" Couldn't find: {', '.join(res['missing'])}." if res["missing"] else ""
+            flash(f"Nutrition calculated from {res['matched']} of {res['total']} ingredients.{miss}", "info")
+        except usda.RateLimited:
+            flash("USDA is rate-limiting lookups. What was found is saved; try again later, or set a free "
+                  "USDA_API_KEY for faster lookups.", "error")
+        except OSError as e:
+            flash(f"Couldn't reach USDA FoodData Central: {e}", "error")
+        return redirect(url_for("recipe", recipe_id=recipe_id) + "#nutrition")
+
+    @app.post("/nutrition/fill")
+    def nutrition_fill():
+        started = nutrition.start_fill(app.config["DB_FILE"])
+        flash("Calculating nutrition for your recipes in the background." if started
+              else "Already calculating.", "info")
+        return redirect(request.referrer or url_for("recipes"))
+
+    @app.get("/nutrition/status")
+    def nutrition_status():
+        conn = get_conn()
+        recipes_ = db.list_recipes(conn)
+        return jsonify(**nutrition.fill_status(), have=sum(1 for r in recipes_ if nutrition.current(r)),
+                       recipes_total=len(recipes_))
+
     @app.route("/recipes/<int:recipe_id>/edit", methods=["GET", "POST"])
     def edit_recipe(recipe_id):
         conn = get_conn()
@@ -895,6 +933,8 @@ def create_app(db_file: str | None = None) -> Flask:
                 "notes": f.get("notes", "").strip(),
                 "new_recipe_ratio": max(0.0, min(1.0, (f.get("new_recipe_pct", type=int) or 0) / 100)),
                 "use_ai": f.get("use_ai") == "on",
+                "min_protein": max(0, f.get("min_protein", type=int) or 0),
+                "max_calories": max(0, f.get("max_calories", type=int) or 0),
                 "weekly_budget": max(0.0, round(f.get("weekly_budget", type=float) or 0.0, 2)),
                 "always_buy": "\n".join(l.strip() for l in f.get("always_buy", "").splitlines() if l.strip()),
             }
@@ -903,6 +943,7 @@ def create_app(db_file: str | None = None) -> Flask:
             flash("Settings saved.", "info")
             return redirect(url_for("settings"))
         return render_template("settings.html", s=db.get_settings(conn), pantry=db.pantry(conn),
+                               usda_key=usda.has_real_key(),
                                picks=db.product_picks(conn))
 
     # ---------------- kitchen: what you have right now ----------------

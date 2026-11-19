@@ -23,19 +23,22 @@ def test_labels():
     assert labels == ["1 min 30 sec", "2 hr", "45 min"]
 
 
-def _meal(client):
-    r = client.post("/plans", data={"week_start": "2026-11-16"})
-    pid = int(r.headers["Location"].rsplit("/", 1)[1])
-    return pid
+def _meal_with_timer(client):
+    from recipe_planner import db
+    conn = db.connect(client.application.config["DB_FILE"])
+    db.init(conn)
+    rid = db.add_recipe(conn, {"title": "Timer Test", "servings": 4, "prep_minutes": 20, "protein": "vegetarian",
+                               "ingredients": [{"name": "rice", "quantity": 1, "unit": "cup", "category": "pantry"}],
+                               "steps": ["Boil water.", "Simmer covered 20 min."]})
+    pid = int(client.post("/plans", data={"week_start": "2026-11-16"}).headers["Location"].rsplit("/", 1)[1])
+    client.post(f"/plans/{pid}/meals", data={"day": "Sat", "recipe_id": str(rid)})
+    return conn.execute("SELECT id FROM plan_meals WHERE plan_id=? AND recipe_id=?", (pid, rid)).fetchone()["id"]
 
 
 def test_cook_page_has_timers_and_scaler(client):
-    pid = _meal(client)
-    from recipe_planner import db
-    conn = db.connect(client.application.config["DB_FILE"])
-    meal = conn.execute("SELECT id FROM plan_meals WHERE plan_id=?", (pid,)).fetchone()["id"]
+    meal = _meal_with_timer(client)
     page = client.get(f"/meals/{meal}/cook").get_data(as_text=True)
-    assert 'class="timerbtn"' in page          # every starter recipe has a timed step
+    assert page.count('class="timerbtn"') == 1 and "Start 20 min timer" in page
     assert "?servings=" in page
     bigger = client.get(f"/meals/{meal}/cook?servings=12").get_data(as_text=True)
     assert "12 servings" in bigger and "Reset" in bigger
