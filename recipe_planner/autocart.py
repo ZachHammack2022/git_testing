@@ -81,6 +81,17 @@ def is_running(order_id: int) -> bool:
     pid = st.get("pid")
     if not pid:
         return False
+    if hasattr(os, "WNOHANG"):
+        # Jobs are children of the web app: an exited one lingers as a zombie (which still
+        # "exists") until reaped. Reap it here so it reads as finished.
+        try:
+            done_pid, _ = os.waitpid(pid, os.WNOHANG)
+            if done_pid == pid:
+                return False
+        except ChildProcessError:
+            pass  # not our child (e.g. started from a terminal)
+        except OSError:
+            return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -487,7 +498,18 @@ def reconcile(order_items: list[dict], cart: list[dict]) -> tuple[list[dict], li
 
 
 def sync_cart(order_id: int, headless: bool = True, profile_dir: str | None = None) -> int:
-    """Look at the real carts and update the order's ticks to match."""
+    """Look at the real carts and update the order's ticks to match. If a product preview was
+    asked for meanwhile (the browser can only do one thing at a time), run it straight after."""
+    code = _sync_cart(order_id, headless, profile_dir)
+    pending = (read_status(order_id) or {}).get("pending_preview")
+    if pending:
+        write_status(order_id, pending_preview=None)
+        return preview_order(order_id, headless=not pending.get("show"), profile_dir=profile_dir,
+                             refresh=bool(pending.get("refresh")))
+    return code
+
+
+def _sync_cart(order_id: int, headless: bool = True, profile_dir: str | None = None) -> int:
     from playwright.sync_api import sync_playwright
 
     conn = db.connect()
@@ -659,10 +681,17 @@ def preview_order(order_id: int, headless: bool = True, profile_dir: str | None 
                         i["options"] = options[:PREVIEW_OPTIONS + 1]
                 db.save_order_items(conn, order_id, order["items"])
                 page.wait_for_timeout(int(random.uniform(*PAUSE_BETWEEN_ITEMS) * 1000))
+            shot = _snapshot(page, order_id, "preview") if todo and not found else None
             ctx.close()
     except Exception as e:
         finish(ok=False, error=f"Stopped: {e.__class__.__name__}. Is the cart filler window still open? "
                                "Close it and try again.")
+        return 1
+    if todo and not found:
+        # Nothing readable at all: say so, with a picture of what Amazon showed.
+        finish(ok=False, found=0, looked_up=len(todo), shot=shot,
+               error="I couldn't read any products from Amazon's search results. Amazon may show "
+                     "a hidden browser a different page — try it with the browser showing.")
         return 1
     finish(ok=True, found=found, looked_up=len(todo))
     print(f"Found products for {found} of {len(todo)} item(s).")

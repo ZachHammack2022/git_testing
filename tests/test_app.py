@@ -348,3 +348,62 @@ def test_product_preview_choose_and_estimate(client, app):
     assert db.product_picks(conn)[a["key"]]["label"] == "Organic it's better"
     # Unknown product id is refused.
     assert client.post(f"/orders/{oid}/items/{a['key']}/choose", json={"asin": "B0NOPE0000"}).status_code == 400
+
+
+def _order_id(client):
+    pid = _plan(client)
+    return int(client.post(f"/plans/{pid}/order").headers["Location"].rsplit("/", 1)[1])
+
+
+def test_preview_waits_for_running_cart_check(client, app, monkeypatch, tmp_path):
+    import os
+    import subprocess
+
+    from recipe_planner import autocart
+
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    monkeypatch.setattr(autocart, "playwright_available", lambda: True)
+    started = []
+
+    class FakeProc:
+        pid = os.getpid()  # a live process
+
+        def __init__(self, args, **kw):
+            started.append(args)
+
+    monkeypatch.setattr(subprocess, "Popen", FakeProc)
+    oid = _order_id(client)
+    # The page's automatic cart check is running (a live process).
+    autocart.write_status(oid, state="syncing", pid=os.getpid())
+    page = client.post(f"/orders/{oid}/preview", follow_redirects=True).get_data(as_text=True)
+    assert started == []  # not dropped, not clashing: queued
+    assert "starts as soon as the cart check finishes" in page
+    assert "busy" not in page
+
+    # The check ends; the next status poll starts the preview.
+    autocart.write_status(oid, state="idle", pid=None)
+    st = client.get(f"/orders/{oid}/autofill").get_json()["status"]
+    assert started and "--preview" in started[0] and "--show" not in started[0]
+    assert st["state"] == "previewing" and not st.get("pending_preview")
+
+    # That process dies without reporting back: shown as finished, not stuck.
+    autocart.write_status(oid, pid=999999)
+    st = client.get(f"/orders/{oid}/autofill").get_json()
+    assert st["status"]["state"] == "idle" and not st["active"]
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert 'id="preview-btn" >' in page or 'id="preview-btn">' in page  # enabled again
+
+
+def test_preview_outcome_is_reported(client, app, monkeypatch):
+    from recipe_planner import autocart
+
+    monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
+    monkeypatch.setattr(autocart, "playwright_available", lambda: True)
+    oid = _order_id(client)
+    autocart.write_status(oid, state="idle", preview={"ok": True, "found": 3, "looked_up": 4, "at": 1})
+    assert "Found products for 3 of 4 items." in client.get(f"/orders/{oid}").get_data(as_text=True)
+    autocart.write_status(oid, preview={"ok": False, "found": 0, "looked_up": 4, "at": 1, "shot": "preview.png",
+                                        "error": "I couldn't read any products"})
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert "read any products" in page and "Preview with the browser showing" in page
+    assert "/autofill/shot/preview.png" in page
