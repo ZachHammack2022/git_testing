@@ -42,10 +42,10 @@
 
 <form method="post" action="{{ url_for('save_kitchen') }}" class="card">
   <h3 style="margin-top:0">Use up soon</h3>
-  <p class="muted small">Fresh food you have now, comma or line separated. Each item drops off after {{ keep_days }} days.</p>
+  <p class="muted small">Fresh food you have now, comma or line separated. Typed items drop off after {{ keep_days }} days. Leftovers from your orders are added here for you, with a use-by date.</p>
   <textarea name="on_hand" rows="4" placeholder="e.g. spinach, half a cabbage, feta, 2 chicken thighs">{{ on_hand|map(attribute='name')|join(', ') }}</textarea>
   {% if on_hand %}
-  <div class="pills" style="margin-top:10px">{% for i in on_hand %}<span class="pill">{{ i.name }} <small>{{ i.added|pretty_date }}</small></span>{% endfor %}</div>
+  <div class="pills" style="margin-top:10px">{% for i in on_hand %}<a class="pill" href="{{ url_for('recipes', q=i.name) }}" style="text-decoration:none">{{ i.name }} <small>{% if i.amount %}{{ i.amount.removeprefix('about ') }}, {% endif %}{{ ('use by ' ~ (i.use_by|pretty_date)) if i.use_by else ('added ' ~ (i.added|pretty_date)) }}</small></a>{% endfor %}</div>
   {% endif %}
   <p><button type="submit">Save</button></p>
 </form>

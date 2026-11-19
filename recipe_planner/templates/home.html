@@ -45,6 +45,17 @@
     </a>
   </div>
 
+  {% if use_soon %}
+  <h2>Use up soon</h2>
+  <div class="pills">
+    {% for i in use_soon %}
+    <a class="pill" href="{{ url_for('recipes', q=i.name) }}" style="text-decoration:none">{{ i.name }}
+      {% if i.amount or i.use_by %}<small>{{ i.amount.removeprefix('about ') if i.amount }}{{ ', ' if i.amount and i.use_by }}{{ 'by ' ~ (i.use_by|pretty_date) if i.use_by }}</small>{% endif %}</a>
+    {% endfor %}
+  </div>
+  <p class="muted small">Tap one to see recipes that use it. They're added to your next plan's "use up" list for you.</p>
+  {% endif %}
+
   <h2>This week</h2>
   <div class="tiles week">
     {% for m in plan.meals %}
