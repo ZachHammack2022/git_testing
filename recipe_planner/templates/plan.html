@@ -15,12 +15,27 @@
     <button type="button" data-open="replan-dlg">Re-plan</button>
   </div>
 </div>
+<div class="budget {{ 'over' if budget and week_cost > budget }}">
+  <div>
+    <b>Groceries about ${{ '%.0f'|format(week_cost) }}</b>{% if budget %} of your ${{ '%.0f'|format(budget) }} budget{% endif %}
+    <div class="muted small">{% if budget and week_cost > budget %}Over by about ${{ '%.0f'|format(week_cost - budget) }}.{% if priciest %} {{ priciest.recipe.title }} is the priciest dinner you haven't locked (about ${{ '%.0f'|format(meal_costs[priciest.id]) }}). Click it to swap.{% endif %}
+      {% elif budget %}Under budget by about ${{ '%.0f'|format(budget - week_cost) }}.
+      {% else %}A rough estimate. <a href="{{ url_for('settings') }}#budget">Set a weekly budget</a> to get warnings and cheaper picks.{% endif %}</div>
+  </div>
+  {% if budget %}<div class="bar" role="img" aria-label="{{ '%.0f'|format(100 * week_cost / budget) }}% of budget"><i style="width: {{ [100 * week_cost / budget, 100]|min }}%"></i></div>{% endif %}
+</div>
+{% if nut %}
+<div class="budget">
+  <div><b>Per dinner: {{ '%.0f'|format(nut.calories) }} calories, {{ '%.0f'|format(nut.protein) }} g protein, {{ '%.0f'|format(nut.fiber) }} g fiber</b>
+    <div class="muted small">Average per serving across {{ nut.count }} of {{ plan.meals|length }} dinners with nutrition data.{% if settings.min_protein and nut.protein < settings.min_protein %} Below your {{ settings.min_protein }} g protein goal.{% endif %}</div></div>
+</div>
+{% endif %}
 <p class="muted small" style="margin-top:-6px">Click a dinner to swap it, change the day or servings, or lock it so a re-plan keeps it.</p>
 
 <div class="tiles">
   {% for m in plan.meals %}
     {{ tile(m.recipe, None, day=m.day, dialog='meal-dlg-' ~ m.id, locked=m.locked, anchor_id='meal-' ~ m.id,
-            meta='Serves ' ~ m.servings ~ (' + ' ~ m.leftovers ~ ' for lunch' if m.leftovers else '') ~ (' · ★' ~ m.fb_rating if m.fb_rating else '')) }}
+            meta='Serves ' ~ m.servings ~ (' · about $' ~ '%.0f'|format(meal_costs[m.id]) if budget else '') ~ (' · ' ~ '%.0f'|format(nut_of[m.id].per_serving.protein) ~ ' g protein' if settings.min_protein and nut_of[m.id] else '') ~ (' + ' ~ m.leftovers ~ ' for lunch' if m.leftovers else '') ~ (' · ★' ~ m.fb_rating if m.fb_rating else '')) }}
   {% endfor %}
   {% if free_days or not plan.meals %}
   <div class="tile add"><div class="body"><div class="plus" aria-hidden="true">+</div>

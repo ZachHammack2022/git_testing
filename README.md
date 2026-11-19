@@ -44,6 +44,12 @@ With a key set, Claude plans the week using your preferences, your feedback hist
 
 If a Claude call fails, the built-in planner takes over. Set `RECIPE_PLANNER_MODEL` to use a different model.
 
+### Optional: nutrition and budget
+
+- **Nutrition.** Calories, protein, carbs, fat and fiber per serving come from USDA FoodData Central. On the Recipes page choose **Calculate the rest** (or **Calculate nutrition** on a single recipe); each ingredient is looked up once and remembered. Set goals under Settings and the planner favors dinners that meet them. Get a free key at https://fdc.nal.usda.gov/api-key-signup.html and start the app with `USDA_API_KEY=...`; without one the shared demo key only allows about 10 lookups an hour.
+- **Budget.** Set a weekly grocery budget under Settings. The plan page shows estimated groceries against it, and plans lean toward cheaper recipes. Estimates use typical prices until you preview products on an order, then they use the prices it saw.
+- **Leftovers.** When you mark an order placed, what's left of fresh items (a bunch of mint you used a quarter of) goes on your Kitchen list with a use-by date, shows on Home as "Use up soon", and feeds the next plan.
+
 ## The weekly loop
 
 | Step | Where | What happens |

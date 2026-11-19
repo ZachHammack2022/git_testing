@@ -111,7 +111,7 @@
   {% endif %}
   {% if autofill_ready and order.status != 'placed' %}
   <div class="row small" id="preview-bar" style="margin-top:10px">
-    {% if estimate.priced %}<span id="estimate"><strong>≈ ${{ '%.2f'|format(estimate.total) }}</strong> <span class="muted">for {{ estimate.priced }} of {{ estimate.count }} items priced (one of each)</span></span>{% endif %}
+    {% if estimate.priced %}<span id="estimate"><strong>≈ ${{ '%.2f'|format(estimate.total) }}</strong> <span class="muted">for {{ estimate.priced }} of {{ estimate.count }} items priced (one of each)</span>{% if budget %} <span class="{{ 'error-text' if estimate.total > budget else 'muted' }}">{{ 'Over' if estimate.total > budget else 'Within' }} your ${{ '%.0f'|format(budget) }} weekly budget.</span>{% endif %}</span>{% endif %}
     {% set pv = autofill.preview or {} %}
     <span class="{{ 'muted' if not pv.error or autofill.state == 'previewing' else 'error-text' }}" id="preview-line">
       {%- if autofill.state == 'previewing' %}{{ autofill.message or 'Looking up products…' }}

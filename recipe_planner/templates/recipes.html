@@ -24,6 +24,13 @@
   <a href="{{ url_for('recipes', archived=None if show_archived else 1) }}">{{ 'Show active' if show_archived else 'Show retired' }}</a>
   <span class="muted small">{{ recipes|length }} recipe{{ 's' if recipes|length != 1 }}</span>
 </div>
+{% if nut_have < nut_total or nut_fill.state in ('running', 'limited', 'error') %}
+<div class="budget" id="nutbar" style="margin-top:-4px">
+  <div><b id="nutline">Nutrition calculated for {{ nut_have }} of {{ nut_total }} recipes</b>
+    <div class="muted small" id="nutmsg">{{ nut_fill.message if nut_fill.state != 'idle' else 'Needed for protein and calorie goals in Settings.' }}</div></div>
+  <form method="post" action="{{ url_for('nutrition_fill') }}"><button type="submit" {{ 'disabled' if nut_fill.state == 'running' }}>{{ 'Calculating…' if nut_fill.state == 'running' else 'Calculate the rest' }}</button></form>
+</div>
+{% endif %}
 <div class="tiles">
   {% for r in recipes %}
   {% set s = stats.get(r.id, {}) %}
@@ -33,4 +40,18 @@
   <p class="muted">No recipes match. Try a different search, or <a href="{{ url_for('new_recipe') }}">add one</a>.</p>
   {% endfor %}
 </div>
+{% endblock %}
+{% block scripts %}
+{% if nut_fill.state == 'running' %}
+<script>
+  // Keep the progress line fresh while the background job runs; reload when it finishes.
+  const poll = async () => {
+    const d = await (await fetch('{{ url_for('nutrition_status') }}')).json();
+    document.getElementById('nutline').textContent = `Nutrition calculated for ${d.have} of ${d.recipes_total} recipes`;
+    document.getElementById('nutmsg').textContent = d.message;
+    if (d.state === 'running') setTimeout(poll, 2000); else location.reload();
+  };
+  setTimeout(poll, 1500);
+</script>
+{% endif %}
 {% endblock %}

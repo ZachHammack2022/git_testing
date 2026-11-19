@@ -37,6 +37,23 @@
   {% endif %}
 </details>
 
+<div id="nutrition" style="margin-top:22px">
+  {% if nut %}
+  <div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr))">
+    <div class="stat"><span class="muted small">Calories</span><b>{{ '%.0f'|format(nut.per_serving.calories) }}</b></div>
+    <div class="stat"><span class="muted small">Protein</span><b>{{ '%.0f'|format(nut.per_serving.protein) }} g</b></div>
+    <div class="stat"><span class="muted small">Carbs</span><b>{{ '%.0f'|format(nut.per_serving.carbs) }} g</b></div>
+    <div class="stat"><span class="muted small">Fat</span><b>{{ '%.0f'|format(nut.per_serving.fat) }} g</b></div>
+    <div class="stat"><span class="muted small">Fiber</span><b>{{ '%.0f'|format(nut.per_serving.fiber) }} g</b></div>
+  </div>
+  <p class="muted small" style="margin:8px 0 0">Per serving, estimated from USDA FoodData Central using {{ nut.matched }} of {{ nut.total }} ingredients{% if nut.missing %} (no match for {{ nut.missing|join(', ') }}){% endif %}. Treat it as within roughly 15%.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('recipe_nutrition', recipe_id=r.id) }}" style="margin-top:10px">
+    <button type="submit" onclick="this.textContent='Looking up…'">{{ 'Recalculate nutrition' if nut else 'Calculate nutrition' }}</button>
+    {% if not usda_key %}<span class="muted small">Using the shared USDA demo key (about 10 lookups an hour). A free key makes this fast: see Settings.</span>{% endif %}
+  </form>
+</div>
+
 <div class="recipe-cols">
   <div class="ingredients">
     <h3>Ingredients</h3>
