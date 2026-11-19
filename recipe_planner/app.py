@@ -11,7 +11,7 @@ import secrets
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, url_for)
 
-from . import ai, autocart, db, grocery, importer, ordering, planner
+from . import ai, autocart, db, grocery, importer, ordering, planner, prep
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -171,6 +171,59 @@ def create_app(db_file: str | None = None) -> Flask:
                                  use_up=planner.split_csv(request.form.get("use_up", "")))
         flash(msg, "info")
         return redirect(url_for("show_plan", plan_id=plan_id))
+
+    # ---------------- weekly prep plan ----------------
+
+    @app.get("/plans/<int:plan_id>/prep")
+    def prep_page(plan_id):
+        conn = get_conn()
+        plan = plan_or_404(plan_id)
+        state = db.get_prep(conn, plan_id)
+        saved = state.get("ai")
+        stale = bool(saved) and saved.get("sig") != prep.plan_signature(plan)
+        current = saved if saved else prep.builtin_plan(plan)
+        return render_template("prep.html", plan=plan, prep=current, done=set(state.get("done", [])),
+                               stale=stale)
+
+    @app.post("/plans/<int:plan_id>/prep/ai")
+    def prep_ai(plan_id):
+        conn = get_conn()
+        plan = plan_or_404(plan_id)
+        if not ai.available():
+            flash("Claude isn't set up; showing the built-in prep plan.", "error")
+            return redirect(url_for("prep_page", plan_id=plan_id))
+        try:
+            result = prep.finish(ai.prep_plan(plan))
+        except ai.AIError as e:
+            flash(f"Claude couldn't make a prep plan ({e}). Showing the built-in one.", "error")
+            return redirect(url_for("prep_page", plan_id=plan_id))
+        state = db.get_prep(conn, plan_id)
+        state["ai"] = dict(result, source="claude", sig=prep.plan_signature(plan))
+        db.save_prep(conn, plan_id, state)
+        return redirect(url_for("prep_page", plan_id=plan_id))
+
+    @app.post("/plans/<int:plan_id>/prep/reset")
+    def prep_reset(plan_id):
+        conn = get_conn()
+        plan_or_404(plan_id)
+        state = db.get_prep(conn, plan_id)
+        state.pop("ai", None)
+        db.save_prep(conn, plan_id, state)
+        return redirect(url_for("prep_page", plan_id=plan_id))
+
+    @app.post("/plans/<int:plan_id>/prep/tick")
+    def prep_tick(plan_id):
+        conn = get_conn()
+        plan_or_404(plan_id)
+        data = request.get_json(silent=True) or {}
+        tid = str(data.get("id", ""))[:20]
+        state = db.get_prep(conn, plan_id)
+        done = [d for d in state.get("done", []) if d != tid]
+        if data.get("done") and tid:
+            done.append(tid)
+        state["done"] = done
+        db.save_prep(conn, plan_id, state)
+        return jsonify(ok=True, done=len(done))
 
     @app.post("/meals/<int:meal_id>/lock")
     def lock_meal(meal_id):

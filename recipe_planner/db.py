@@ -121,6 +121,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE orders ADD COLUMN total REAL")
     if "leftovers" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
+    plan_cols = {r["name"] for r in conn.execute("PRAGMA table_info(plans)")}
+    if "prep" not in plan_cols:  # JSON: {"done": [task ids], "ai": {...saved Claude prep plan}}
+        conn.execute("ALTER TABLE plans ADD COLUMN prep TEXT DEFAULT '{}'")
 
 
 def _sync_seed_recipes(conn: sqlite3.Connection) -> None:
@@ -338,6 +341,19 @@ def get_plan(conn, plan_id: int) -> dict | None:
     meals.sort(key=lambda x: (DAYS.index(x["day"]) if x["day"] in DAYS else 99, x["id"]))
     plan["meals"] = meals
     return plan
+
+
+def get_prep(conn, plan_id: int) -> dict:
+    row = conn.execute("SELECT prep FROM plans WHERE id=?", (plan_id,)).fetchone()
+    try:
+        return json.loads(row["prep"] or "{}") if row else {}
+    except ValueError:
+        return {}
+
+
+def save_prep(conn, plan_id: int, prep: dict) -> None:
+    conn.execute("UPDATE plans SET prep=? WHERE id=?", (json.dumps(prep), plan_id))
+    conn.commit()
 
 
 def latest_plan(conn) -> dict | None:

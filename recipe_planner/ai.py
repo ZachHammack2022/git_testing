@@ -11,6 +11,7 @@ import os
 from . import db
 from .grocery import CATEGORIES
 
+DAYS_ENUM = db.DAYS
 MODEL = os.environ.get("RECIPE_PLANNER_MODEL", "claude-opus-5-5")
 
 
@@ -364,3 +365,45 @@ def scan_kitchen(images: list[tuple[bytes, str]]) -> list[dict]:
             seen.add(name)
             out.append({"name": name, "kind": it.get("kind") if it.get("kind") in ("fresh", "staple") else "fresh"})
     return out
+
+
+def prep_plan(plan: dict) -> dict:
+    """A batch-prep plan for the week's dinners: {sessions: [...], night_before: [...]}."""
+    days = [m["day"] for m in plan["meals"]] or ["Mon"]
+    task = {"type": "object", "additionalProperties": False, "required": ["text", "detail", "days"],
+            "properties": {"text": {"type": "string", "description": "short imperative, e.g. 'Chop 3 onions'"},
+                           "detail": {"type": "string", "description": "amounts, how to store it, how long it keeps"},
+                           "days": {"type": "array", "items": {"type": "string", "enum": days}}}}
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["sessions", "night_before"],
+        "properties": {
+            "sessions": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["title", "subtitle", "tasks"],
+                "properties": {"title": {"type": "string"},
+                               "subtitle": {"type": "string", "description": "which dinners it covers and roughly how long it takes"},
+                               "tasks": {"type": "array", "items": task}}}},
+            "night_before": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False, "required": ["day", "text"],
+                "properties": {"day": {"type": "string", "enum": DAYS_ENUM},
+                               "text": {"type": "string"}}}},
+        },
+    }
+    meals = []
+    for m in plan["meals"]:
+        r = m["recipe"]
+        slim = {"day": m["day"], "title": r["title"], "servings": m.get("total_servings") or m["servings"],
+                "recipe_servings": r["servings"], "ingredients": r["ingredients"], "steps": r["steps"]}
+        meals.append(slim)
+    prompt = (
+        "Plan batch prep for this week's dinners so weeknight cooking is fast. Groceries arrive "
+        "at the weekend. Group the work into one or two sessions (a weekend session, plus a "
+        "midweek top-up only if later meals need it, since chopped vegetables keep 3-4 days and "
+        "fresh meat or fish 1-2 days). Combine the same task across meals (chop all the onions at "
+        "once, with the total amount), order tasks so the session flows (start long-cooking "
+        "things first), and skip anything that's better done on the day (avocado, herbs, "
+        "searing). Add night-before reminders for thawing and marinades. Scale amounts to the "
+        "servings given.\n\n" + json.dumps(meals, indent=1)
+    )
+    return _call(prompt, schema, max_tokens=12000,
+                 system="You are a practical home-cooking coach who plans efficient meal prep.")

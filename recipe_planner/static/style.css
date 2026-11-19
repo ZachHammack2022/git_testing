@@ -59,7 +59,7 @@ ol.steps li { margin-bottom: 6px; }
 @media (max-width: 600px) { header.top nav { gap: 12px; } h1 { font-size: 1.35rem; } }
 
 @media print {
-  header.top, .flash, button, .btn, form.card, details > summary, #next-btn, .progress { display: none !important; }
+  header.top, .flash, button, .btn, form.card, .noprint, details > summary, #next-btn, .progress { display: none !important; }
   details { display: block; }
   body { background: #fff; color: #000; }
   .card { border: none; padding: 0 0 10px; break-inside: avoid; }

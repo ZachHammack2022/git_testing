@@ -8,6 +8,7 @@
   </div>
   <div class="row">
     <a class="btn primary" href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list →</a>
+    <a class="btn" href="{{ url_for('prep_page', plan_id=plan.id) }}">🔪 Prep plan</a>
     <a class="btn" href="{{ url_for('feedback', plan_id=plan.id) }}">Rate meals</a>
   </div>
 </div>

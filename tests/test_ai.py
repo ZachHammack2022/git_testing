@@ -153,3 +153,15 @@ def test_scan_kitchen_sends_images_first(fake):
     assert content[-1]["type"] == "text"
     assert "receipt" in content[-1]["text"]
     assert msgs.calls[0]["system"] != ai.SYSTEM
+
+
+def test_prep_plan_request(conn, fake):
+    pid = planner.plan_week(conn, dt.date(2026, 11, 23), use_ai=False)
+    plan = db.get_plan(conn, pid)
+    msgs = fake({"sessions": [], "night_before": []})
+    assert ai.prep_plan(plan) == {"sessions": [], "night_before": []}
+    call = msgs.calls[0]
+    schema = call["output_config"]["format"]["schema"]
+    task_days = schema["properties"]["sessions"]["items"]["properties"]["tasks"]["items"]["properties"]["days"]
+    assert task_days["items"]["enum"] == [m["day"] for m in plan["meals"]]
+    assert plan["meals"][0]["recipe"]["title"] in call["messages"][0]["content"]
