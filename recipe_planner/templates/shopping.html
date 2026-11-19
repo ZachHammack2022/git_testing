@@ -10,7 +10,7 @@
 </div>
 
 <form method="post" action="{{ url_for('start_order', plan_id=plan.id) }}">
-  <p class="muted small">Uncheck anything you don't need to buy. Pantry staples (set in <a href="{{ url_for('settings') }}">Settings</a>) start unchecked.</p>
+  <p class="muted small">Uncheck anything you don't need to buy. Pantry staples (<a href="{{ url_for('settings') }}">Settings</a>) and food you have in your <a href="{{ url_for('kitchen') }}">Kitchen</a> start unchecked.</p>
   {% for cat, items in groups %}
   <div class="card">
     <h3 style="text-transform:capitalize">{{ cat }}</h3>

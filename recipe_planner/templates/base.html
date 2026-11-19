@@ -17,6 +17,7 @@
     {% set ep = request.endpoint or '' %}
     <a href="{{ url_for('home') }}" class="{{ 'active' if ep == 'home' }}">This week</a>
     <a href="{{ url_for('recipes') }}" class="{{ 'active' if 'recipe' in ep }}">Recipes</a>
+    <a href="{{ url_for('kitchen') }}" class="{{ 'active' if 'kitchen' in ep }}">Kitchen</a>
     <a href="{{ url_for('history') }}" class="{{ 'active' if ep == 'history' }}">History</a>
     <a href="{{ url_for('settings') }}" class="{{ 'active' if ep == 'settings' }}">Settings</a>
   </nav>

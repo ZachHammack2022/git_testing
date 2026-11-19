@@ -142,3 +142,14 @@ def test_discover_and_keep(client, app, fake):
     conn = db.connect(app.config["DB_FILE"])
     assert db.get_recipe(conn, rid)["source"] == "ai"
     assert client.post("/recipes/keep", data={"recipe": "nope"}).status_code == 400
+
+
+def test_scan_kitchen_sends_images_first(fake):
+    msgs = fake({"items": [{"name": "kale", "kind": "fresh"}]})
+    assert ai.scan_kitchen([(b"\x89PNG", "image/png")]) == [{"name": "kale", "kind": "fresh"}]
+    content = msgs.calls[0]["messages"][0]["content"]
+    assert content[0] == {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                      "data": "iVBORw=="}}
+    assert content[-1]["type"] == "text"
+    assert "receipt" in content[-1]["text"]
+    assert msgs.calls[0]["system"] != ai.SYSTEM

@@ -163,20 +163,28 @@ def taste_context(conn, settings: dict) -> str:
     return "\n".join(lines)
 
 
-def _call(prompt: str, schema: dict, max_tokens: int = 16000) -> dict:
+def _call(prompt: str, schema: dict, max_tokens: int = 16000, system: str = SYSTEM,
+          images: list[tuple[bytes, str]] | None = None) -> dict:
+    """One structured-output request. images: [(bytes, media type)] sent before the prompt."""
     import anthropic
+    import base64
 
     client = _get_client()
+    content: str | list = prompt
+    if images:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": mt,
+                                                "data": base64.b64encode(data).decode()}}
+                   for data, mt in images] + [{"type": "text", "text": prompt}]
     try:
         resp = client.beta.messages.create(
             model=MODEL,
             max_tokens=max_tokens,
-            system=SYSTEM,
+            system=system,
             thinking={"type": "adaptive"},
             output_config={"effort": "medium", "format": {"type": "json_schema", "schema": schema}},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": content}],
         )
     except anthropic.AuthenticationError as e:
         raise AIError("API key rejected") from e
@@ -324,3 +332,35 @@ def discover(conn, settings: dict, count: int = 4, request: str = "") -> list[di
     data = _call(prompt, schema)
     existing = {r["title"].lower() for r in db.list_recipes(conn, include_archived=True)}
     return [r for r in data.get("recipes", []) if r["title"].lower() not in existing and r.get("ingredients")]
+
+
+KITCHEN_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["items"],
+    "properties": {"items": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["name", "kind"],
+        "properties": {
+            "name": {"type": "string", "description": "plain grocery name, lowercase, e.g. 'baby spinach', 'cheddar cheese', 'eggs'"},
+            "kind": {"type": "string", "enum": ["fresh", "staple"],
+                     "description": "staple = shelf-stable things a kitchen keeps stocked (spices, oils, vinegar, condiments, flour, sugar, rice, pasta, canned goods); fresh = everything else"},
+        }}}},
+}
+IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/gif")
+
+
+def scan_kitchen(images: list[tuple[bytes, str]]) -> list[dict]:
+    """Photos of a fridge, pantry shelf or grocery receipt -> [{name, kind}] (deduplicated)."""
+    prompt = (
+        "These photos show my fridge, pantry or a grocery receipt. List the food and cooking "
+        "ingredients you can identify, as plain grocery names a recipe would use (a receipt line "
+        "like 'ORG BBY SPNCH 5OZ' becomes 'baby spinach'). One entry per distinct item; skip "
+        "non-food, drinks other than milk, and anything you can't make out."
+    )
+    data = _call(prompt, KITCHEN_SCHEMA, max_tokens=8000, images=images,
+                 system="You help a home cook keep track of the food they have.")
+    out, seen = [], set()
+    for it in data.get("items", []):
+        name = (it.get("name") or "").strip().lower()
+        if name and name not in seen:
+            seen.add(name)
+            out.append({"name": name, "kind": it.get("kind") if it.get("kind") in ("fresh", "staple") else "fresh"})
+    return out

@@ -87,8 +87,9 @@ DEFAULT_SETTINGS = {
     "notes": "",             # free-form guidance for the planner
     "new_recipe_ratio": 0.4, # share of AI-planned meals that should be brand new
     "use_ai": True,
-    "always_buy": "",
-    "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}        # newline-separated grocery lines added to every order
+    "always_buy": "",        # newline-separated grocery lines added to every order
+    "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}
+    "on_hand": [],           # [{"name", "added"}] fresh food you have now (see on_hand())
 }
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -448,6 +449,38 @@ def set_pantry(conn, names: list[str]) -> None:
     for n in {normalize_name(x) for x in names if x.strip()}:
         conn.execute("INSERT OR IGNORE INTO pantry(name) VALUES (?)", (n,))
     conn.commit()
+
+
+ON_HAND_DAYS = 10  # fresh food you told us about is assumed gone after this
+
+
+def on_hand(conn, today=None) -> list[dict]:
+    """Fresh food you have right now (from a fridge photo or typed in): [{name, added}].
+    Planning favours using it up and shopping lists skip it. Entries expire on their own."""
+    import datetime as dt
+
+    today = today or dt.date.today()
+    cutoff = (today - dt.timedelta(days=ON_HAND_DAYS)).isoformat()
+    return [i for i in (get_settings(conn).get("on_hand") or []) if i.get("added", "") >= cutoff]
+
+
+def set_on_hand(conn, names: list[str], today=None, replace: bool = True) -> None:
+    """replace=True (editing the list): names already there keep their date, new ones are
+    dated today. replace=False (a new photo): adds to the list and re-dates what it names."""
+    import datetime as dt
+
+    from .grocery import normalize_name
+
+    stamp = (today or dt.date.today()).isoformat()
+    current = {normalize_name(i["name"]): i for i in on_hand(conn, today)}
+    out = {} if replace else dict(current)
+    for n in names:
+        n = n.strip().lower()
+        if not n:
+            continue
+        key = normalize_name(n)
+        out[key] = (current.get(key) if replace else None) or {"name": n, "added": stamp}
+    save_settings(conn, {"on_hand": list(out.values())})
 
 
 def product_picks(conn) -> dict[str, dict]:

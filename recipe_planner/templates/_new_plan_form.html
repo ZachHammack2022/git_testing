@@ -7,7 +7,8 @@
     {% endif %}
   </div>
   <label for="useup">Use up <span class="muted small">(optional — ingredients you already have)</span></label>
-  <input type="text" id="useup" name="use_up" placeholder="e.g. spinach, half a cabbage, feta" style="width:100%">
+  <input type="text" id="useup" name="use_up" value="{{ (on_hand or [])|join(', ') }}" placeholder="e.g. spinach, half a cabbage, feta" style="width:100%">
+  {% if on_hand %}<p class="muted small" style="margin:4px 0 0">Filled in from <a href="{{ url_for('kitchen') }}">your kitchen</a>.</p>{% endif %}
   {% if ai_available %}
   <label for="req">Anything special this week? <span class="muted small">(optional)</span></label>
   <input type="text" id="req" name="request" placeholder="e.g. guests Saturday, use up the spinach, nothing heavy" style="width:100%">

@@ -19,6 +19,7 @@ def create_app(db_file: str | None = None) -> Flask:
     app.secret_key = os.environ.get("RECIPE_PLANNER_SECRET") or secrets.token_hex(32)
     app.config["DB_FILE"] = db_file or db.db_path()
     app.config["PASSWORD"] = os.environ.get("RECIPE_PLANNER_PASSWORD", "")
+    app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024  # a few phone photos
 
     @app.before_request
     def _require_password():
@@ -95,7 +96,7 @@ def create_app(db_file: str | None = None) -> Flask:
         return render_template(
             "home.html", plan=plan, order=order, needs_feedback=needs_feedback, tonight=tonight,
             next_week=planner.next_unplanned_week(plan["week_start"] if plan else None).isoformat(),
-            settings=db.get_settings(conn),
+            settings=db.get_settings(conn), on_hand=[i["name"] for i in db.on_hand(conn)],
         )
 
     @app.post("/plans")
@@ -244,7 +245,9 @@ def create_app(db_file: str | None = None) -> Flask:
     # ---------------- shopping & ordering ----------------
 
     def _shopping(plan):
-        return grocery.build_shopping_list(plan["meals"], db.pantry(get_conn()))
+        conn = get_conn()
+        have = db.pantry(conn) + [i["name"] for i in db.on_hand(conn)]
+        return grocery.build_shopping_list(plan["meals"], have)
 
     @app.get("/plans/<int:plan_id>/shopping")
     def shopping(plan_id):
@@ -700,6 +703,76 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("settings"))
         return render_template("settings.html", s=db.get_settings(conn), pantry=db.pantry(conn),
                                picks=db.product_picks(conn))
+
+    # ---------------- kitchen: what you have right now ----------------
+
+    @app.get("/kitchen")
+    def kitchen():
+        conn = get_conn()
+        return render_template("kitchen.html", on_hand=db.on_hand(conn), pantry=db.pantry(conn),
+                               found=None, keep_days=db.ON_HAND_DAYS)
+
+    @app.post("/kitchen")
+    def save_kitchen():
+        conn = get_conn()
+        db.set_on_hand(conn, request.form.get("on_hand", "").replace("\n", ",").split(","))
+        flash("Saved what you have.", "info")
+        return redirect(url_for("kitchen"))
+
+    @app.post("/kitchen/scan")
+    def scan_kitchen():
+        """Photo of the fridge / a receipt -> Claude lists the food -> you confirm."""
+        conn = get_conn()
+        if not ai.available():
+            flash("Reading photos needs Claude: set ANTHROPIC_API_KEY and restart the app.", "error")
+            return redirect(url_for("kitchen"))
+        images = []
+        for f in request.files.getlist("photos")[:5]:
+            data = f.read()
+            if not data:
+                continue
+            mt = (f.mimetype or "").lower()
+            if mt not in ai.IMAGE_TYPES:
+                flash(f"Skipped {f.filename or 'a file'}: use a JPEG, PNG or WebP photo.", "error")
+                continue
+            if len(data) > 5 * 1024 * 1024:
+                flash(f"Skipped {f.filename or 'a photo'}: over 5 MB. Try a smaller photo.", "error")
+                continue
+            images.append((data, mt))
+        if not images:
+            flash("Choose a photo first.", "error")
+            return redirect(url_for("kitchen"))
+        try:
+            found = ai.scan_kitchen(images)
+        except ai.AIError as e:
+            flash(f"Couldn't read the photo: {e}.", "error")
+            return redirect(url_for("kitchen"))
+        if not found:
+            flash("I couldn't spot any food in that photo. Try a closer, brighter shot.", "error")
+            return redirect(url_for("kitchen"))
+        have = {grocery.normalize_name(n) for n in db.pantry(conn)}
+        for it in found:
+            it["known_staple"] = grocery.normalize_name(it["name"]) in have
+        return render_template("kitchen.html", on_hand=db.on_hand(conn), pantry=db.pantry(conn),
+                               found=found, keep_days=db.ON_HAND_DAYS)
+
+    @app.post("/kitchen/confirm")
+    def confirm_kitchen():
+        conn = get_conn()
+        names = request.form.getlist("name")
+        fresh, staples = [], []
+        for i, name in enumerate(names):
+            where = request.form.get(f"where-{i}", "skip")
+            if name.strip() and where == "fresh":
+                fresh.append(name)
+            elif name.strip() and where == "staple":
+                staples.append(name.strip().lower())
+        if fresh:
+            db.set_on_hand(conn, fresh, replace=False)
+        if staples:
+            db.set_pantry(conn, db.pantry(conn) + staples)
+        flash(f"Added {len(fresh)} to “use up soon” and {len(staples)} to pantry staples.", "info")
+        return redirect(url_for("kitchen"))
 
     @app.get("/backup.db")
     def backup():
