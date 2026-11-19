@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS product_picks (
     label TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS price_book (
+    name TEXT PRIMARY KEY,          -- normalized ingredient name
+    price REAL NOT NULL,            -- what one purchase cost in the product preview
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
     plan_id INTEGER REFERENCES plans(id) ON DELETE SET NULL,
@@ -90,6 +96,7 @@ DEFAULT_SETTINGS = {
     "use_ai": True,
     "always_buy": "",        # newline-separated grocery lines added to every order
     "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}
+    "weekly_budget": 0,      # dollars; 0 = no budget
     "on_hand": [],           # [{"name", "added"}] fresh food you have now (see on_hand())
 }
 
@@ -540,6 +547,19 @@ def add_leftovers(conn, leftovers: list[dict], today=None) -> None:
         current[normalize_name(lo["name"])] = {"name": lo["name"].lower(), "added": stamp,
                                                "amount": lo["amount"], "use_by": lo["use_by"]}
     save_settings(conn, {"on_hand": list(current.values())})
+
+
+def price_book(conn) -> dict[str, float]:
+    return {r["name"]: r["price"] for r in conn.execute("SELECT name, price FROM price_book")}
+
+
+def save_prices(conn, prices: dict[str, float]) -> None:
+    """Remember what products cost, keyed by normalized ingredient name."""
+    for name, price in prices.items():
+        if price and price > 0:
+            conn.execute("INSERT INTO price_book(name, price) VALUES (?, ?) ON CONFLICT(name) DO UPDATE"
+                         " SET price=excluded.price, updated_at=CURRENT_TIMESTAMP", (name, float(price)))
+    conn.commit()
 
 
 def product_picks(conn) -> dict[str, dict]:

@@ -300,3 +300,11 @@ body.bigtext ol.cookstep.focus .name { font-size: 2.1rem; }
 ol.big li[data-n]::before { content: attr(data-n); }
 ol.cookstep.focus li.cur:has(input:checked) { opacity: 1; }
 ol.cookstep.focus li.cur:has(input:checked) .name { text-decoration: none; }
+
+.budget { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin: 0 0 16px; }
+.budget > div:first-child { flex: 2 1 280px; }
+.budget .bar { flex: 1 1 180px; height: 12px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.budget .bar i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
+.budget.over { border-color: var(--warn); }
+.budget.over .bar i { background: var(--warn); }
+.budget.over b { color: var(--warn); }

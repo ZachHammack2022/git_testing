@@ -39,6 +39,9 @@
       <p class="muted small">Claude isn't configured. Set <code>ANTHROPIC_API_KEY</code> before starting the app to get fresh recipe ideas. The built-in planner uses your library and ratings.</p>
       <input type="hidden" name="use_ai" value="{{ 'on' if s.use_ai else '' }}">
     {% endif %}
+    <label for="budget" id="budget">Weekly grocery budget ($)</label>
+    <input type="number" id="budget" name="weekly_budget" min="0" step="5" value="{{ '%.0f'|format(s.weekly_budget) if s.weekly_budget else '' }}" placeholder="No limit" style="width:140px">
+    <p class="muted small" style="margin:4px 0 0">When set, plans lean toward cheaper recipes and the plan page warns you if the week runs over. Costs are estimates that get more accurate as you preview products on orders.</p>
     <label for="nr">New recipes per week with Claude: <span id="nrv">{{ (s.new_recipe_ratio * 100)|round|int }}</span>%</label>
     <input type="range" id="nr" name="new_recipe_pct" min="0" max="100" step="10" value="{{ (s.new_recipe_ratio * 100)|round|int }}" oninput="document.getElementById('nrv').textContent=this.value">
   </div>

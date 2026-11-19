@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 
-from . import db
+from . import costing, db
 from .grocery import normalize_name
 
 
@@ -44,8 +44,18 @@ def contains_disliked(recipe: dict, dislikes: list[str]) -> bool:
     return False
 
 
+def budget_adjust(cost: float | None, per_meal: float | None) -> float:
+    """Score change for a recipe costing `cost` when each remaining dinner can spend `per_meal`.
+    Dearer than the share is penalised (up to -3), cheaper gets a small bonus (up to +0.5)."""
+    if not cost or not per_meal:
+        return 0.0
+    ratio = cost / max(per_meal, 1.0)
+    return -min(3.0, 1.6 * (ratio - 1)) if ratio > 1 else min(0.5, 0.5 * (1 - ratio))
+
+
 def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
-                 affinity: dict | None = None) -> float:
+                 affinity: dict | None = None, cost: float | None = None,
+                 per_meal_budget: float | None = None) -> float:
     """Higher = more likely to be picked. Exposed for tests and the UI."""
     s = stats.get(recipe["id"], {})
     score = 1.0
@@ -80,7 +90,7 @@ def score_recipe(recipe: dict, stats: dict, settings: dict, week_start: dt.date,
     max_prep = int(settings.get("max_prep_minutes") or 0)
     if max_prep and recipe.get("prep_minutes", 0) > max_prep:
         score -= 1.5
-    return score
+    return score + budget_adjust(cost, per_meal_budget)
 
 
 PERISHABLE = {"produce", "dairy & eggs", "bakery"}
@@ -133,6 +143,7 @@ def heuristic_pick(
     already: list[dict] | None = None,
     affinity: dict | None = None,
     use_up: list[str] | None = None,
+    costs: dict[int, float] | None = None,
 ) -> list[dict]:
     """Greedy pick with variety penalties and a small bonus for sharing fresh ingredients
     with the rest of the week (less waste). `already` = recipes fixed in the week.
@@ -163,12 +174,19 @@ def heuristic_pick(
         return sum(1 for r in pool if theme_bonus(r, t) > 0) if t else 10**6
     order = sorted(days, key=matches)
     by_day: dict[str, dict] = {}
+    budget = float(settings.get("weekly_budget") or 0) if costs else 0.0
+    n_meals = len(days) + len(chosen)
     for day in order:
         if not pool:
             break
+        # What each dinner still to pick can spend if the week is to stay on budget.
+        per_meal = None
+        if budget:
+            spent = sum(costs.get(c["id"], 0.0) for c in chosen)
+            per_meal = (budget - spent) / max(n_meals - len(chosen), 1)
 
         def adjusted(r):
-            sc = base[r["id"]] + theme_bonus(r, themes.get(day, ""))
+            sc = base[r["id"]] + theme_bonus(r, themes.get(day, "")) + budget_adjust(costs.get(r["id"]) if costs else None, per_meal)
             same_cuisine = sum(1 for c in chosen if c.get("cuisine") == r.get("cuisine"))
             same_protein = sum(1 for c in chosen if c.get("protein") == r.get("protein"))
             shared = len(fresh[r["id"]] & week_fresh)
@@ -203,6 +221,8 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
                 request_text = extra_request
                 if use_up:
                     request_text += f"\nUse up these ingredients I already have: {', '.join(use_up)}."
+                if float(settings.get("weekly_budget") or 0):
+                    request_text += f"\nKeep the week's groceries to about ${float(settings['weekly_budget']):.0f}; prefer affordable recipes."
                 picks, summary = ai.plan_week(conn, settings, days, week_start, request_text,
                                               locked=[k["title"] for k in keep])
                 planner_name = "claude"
@@ -218,10 +238,15 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
         taken_days = {p["day"] for p in picks}
         remaining = [d for d in days if d not in taken_days]
         already = keep + [db.get_recipe(conn, p["recipe_id"]) for p in picks]
+        library = db.list_recipes(conn)
+        costs = None
+        if float(settings.get("weekly_budget") or 0):
+            costs = costing.recipe_costs(library, int(settings.get("household_size") or 2), db.price_book(conn),
+                                         db.pantry(conn) + [i["name"] for i in db.on_hand(conn)])
         fill = heuristic_pick(
-            db.list_recipes(conn), db.recipe_stats(conn, week_start.isoformat()), settings,
+            library, db.recipe_stats(conn, week_start.isoformat()), settings,
             remaining, week_start, rng=rng, already=already, affinity=db.taste_affinity(conn),
-            use_up=use_up,
+            use_up=use_up, costs=costs,
             exclude_ids={r["id"] for r in already},
         )
         picks.extend(fill)
