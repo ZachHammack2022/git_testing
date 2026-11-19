@@ -120,6 +120,10 @@ You can also run it from a terminal with `python -m recipe_planner.autocart`.
 
 **Settings → Download backup** saves a copy of the whole database. To restore it, point `RECIPE_DB` at the downloaded file.
 
+## Hosting
+
+See [docs/HOSTING.md](docs/HOSTING.md) for reaching the app from anywhere and what it would take to make it multi-user.
+
 ## Development
 
 ```bash
