@@ -8,39 +8,41 @@
 
   {% if tonight %}
     {{ tile(tonight.recipe, url_for('cook', meal_id=tonight.id), meta=tonight.recipe.prep_minutes ~ ' min · serves ' ~ tonight.servings,
-            hero=True, kicker='Tonight', cta_href=url_for('cook', meal_id=tonight.id), cta_label='Start cooking') }}
+            hero=True, kicker='Tonight', cta_label='Start cooking') }}
   {% else %}
     <h1>Week of {{ plan.week_start|pretty_date }}</h1>
   {% endif %}
 
   <div class="steps3">
-    <div class="step done">
+    <a class="step done" href="{{ url_for('show_plan', plan_id=plan.id) }}">
       <div class="what">Plan</div>
       <div class="state">{{ plan.meals|length }} dinners ready</div>
-      <a class="small" href="{{ url_for('show_plan', plan_id=plan.id) }}">Swap or change meals</a>
-    </div>
-    <div class="step {{ 'current' if step == 'order' else 'done' }}">
+      <span class="go">Swap or change meals</span>
+    </a>
+    {% if not order %}
+    <a class="step current" href="{{ url_for('shopping', plan_id=plan.id) }}">
       <div class="what">Order</div>
-      {% if not order %}
-        <div class="state">Turn the week into one grocery list.</div>
-        <a class="btn" href="{{ url_for('shopping', plan_id=plan.id) }}">Make shopping list</a>
-      {% elif order.status == 'placed' %}
-        <div class="state">Order placed</div>
-        <a class="small" href="{{ url_for('show_order', order_id=order.id) }}">View order</a>
+      <div class="state">Turn the week into one grocery list.</div>
+      <span class="go">Make shopping list</span>
+    </a>
+    {% else %}
+    <a class="step {{ 'current' if step == 'order' else 'done' }}" href="{{ url_for('show_order', order_id=order.id) }}">
+      <div class="what">Order</div>
+      {% if order.status == 'placed' %}
+        <div class="state">Order placed</div><span class="go">View order</span>
       {% else %}
-        <div class="state">{{ n_cart }} of {{ n_items }} items in your cart</div>
-        <a class="btn" href="{{ url_for('show_order', order_id=order.id) }}">Continue ordering</a>
+        <div class="state">{{ n_cart }} of {{ n_items }} items in your cart</div><span class="go">Continue ordering</span>
       {% endif %}
-    </div>
-    <div class="step {{ 'current' if step == 'rate' else ('done' if not needs_feedback else 'todo') }}">
+    </a>
+    {% endif %}
+    <a class="step {{ 'current' if step == 'rate' else ('done' if not needs_feedback else 'todo') }}" href="{{ url_for('feedback', plan_id=plan.id) }}">
       <div class="what">Rate</div>
       {% if needs_feedback %}
-        <div class="state">{{ needs_feedback|length }} meal{{ 's' if needs_feedback|length != 1 }} to rate</div>
-        <a class="{{ 'btn' if step == 'rate' else 'small' }}" href="{{ url_for('feedback', plan_id=plan.id) }}">Rate meals</a>
+        <div class="state">{{ needs_feedback|length }} meal{{ 's' if needs_feedback|length != 1 }} to rate</div><span class="go">Rate meals</span>
       {% else %}
         <div class="state">Everything rated</div>
       {% endif %}
-    </div>
+    </a>
   </div>
 
   <h2>This week</h2>

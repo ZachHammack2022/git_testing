@@ -14,7 +14,7 @@
     {% if kicker %}<div class="kicker">{{ kicker }}</div>{% endif %}
     <h3 class="name">{% if href %}<a href="{{ href }}">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}</h3>
     {% if meta %}<div class="meta">{{ meta }}</div>{% endif %}
-    {% if cta_href %}<a class="btn primary big cta" href="{{ cta_href }}">{{ cta_label }}</a>{% endif %}
+    {% if cta_label %}<span class="cta-text">{{ cta_label }}</span>{% endif %}
   </div>
 </div>
 {% endmacro %}
