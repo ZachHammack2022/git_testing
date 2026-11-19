@@ -96,6 +96,12 @@ DEFAULT_SETTINGS = {
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
+def photo_slug(title: str) -> str:
+    """File name stem for a starter recipe's photo, e.g. 'chicken-tikka-masala'."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
 def db_path() -> str:
     return os.environ.get(
         "RECIPE_DB", str(Path(__file__).resolve().parent.parent / "instance" / "planner.db")
@@ -155,10 +161,20 @@ def _sync_seed_recipes(conn: sqlite3.Connection) -> None:
     )
 
 
+def _attach_seed_photos(conn: sqlite3.Connection) -> None:
+    """Give starter recipes that have no photo the one shipped in static/recipe_photos/."""
+    folder = Path(__file__).resolve().parent / "static" / "recipe_photos"
+    for row in conn.execute("SELECT id, title FROM recipes WHERE image='' AND source='library'").fetchall():
+        slug = photo_slug(row["title"])
+        if (folder / f"{slug}.jpg").exists():
+            conn.execute("UPDATE recipes SET image=? WHERE id=?", (f"/static/recipe_photos/{slug}.jpg", row["id"]))
+
+
 def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _migrate(conn)
     _sync_seed_recipes(conn)
+    _attach_seed_photos(conn)
     if conn.execute("SELECT COUNT(*) FROM pantry").fetchone()[0] == 0:
         for staple in ["salt", "black pepper", "olive oil", "water", "vegetable oil"]:
             conn.execute("INSERT OR IGNORE INTO pantry(name) VALUES (?)", (staple,))

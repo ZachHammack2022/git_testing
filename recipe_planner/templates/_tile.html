@@ -7,7 +7,7 @@
 {% set tone = TONES.get((r.protein or '')|lower, ('#44566b', '🍽️')) %}
 <div class="tile {{ 'hero' if hero }} {{ 'banner' if banner }} {{ '' if r.image else 'noimg' }}" style="--t: {{ tone[0] }}">
   {% if r.image %}<img src="{{ r.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-  {% else %}<span class="art" aria-hidden="true">{{ tone[1] }}</span>{% endif %}
+  {% endif %}
   {% if day %}<span class="chip">{{ day }}</span>{% endif %}
   {% if new %}<span class="chip new">New</span>{% endif %}
   <div class="body">
