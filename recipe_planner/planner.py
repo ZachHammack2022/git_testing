@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 
-from . import costing, db, nutrition
+from . import busy, costing, db, nutrition
 from .grocery import normalize_name
 
 
@@ -144,6 +144,7 @@ def heuristic_pick(
     affinity: dict | None = None,
     use_up: list[str] | None = None,
     costs: dict[int, float] | None = None,
+    day_hints: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Greedy pick with variety penalties and a small bonus for sharing fresh ingredients
     with the rest of the week (less waste). `already` = recipes fixed in the week.
@@ -170,7 +171,8 @@ def heuristic_pick(
     # Themed days choose first, most constrained first, so "pizza Friday" gets the one pizza
     # recipe even if "meatless Monday" would also have liked it.
     def matches(d):
-        t = themes.get(d, "").strip()
+        # A calendar hint (e.g. pizza on a packed night) counts as a theme, so that day picks before looser ones.
+        t = themes.get(d, "").strip() or (day_hints or {}).get(d, {}).get("theme", "")
         return sum(1 for r in pool if theme_bonus(r, t) > 0) if t else 10**6
     order = sorted(days, key=matches)
     by_day: dict[str, dict] = {}
@@ -186,7 +188,7 @@ def heuristic_pick(
             per_meal = (budget - spent) / max(n_meals - len(chosen), 1)
 
         def adjusted(r):
-            sc = base[r["id"]] + theme_bonus(r, themes.get(day, "")) + budget_adjust(costs.get(r["id"]) if costs else None, per_meal)
+            sc = base[r["id"]] + theme_bonus(r, themes.get(day, "")) + _busy_adjust(r, (day_hints or {}).get(day), themes.get(day)) + budget_adjust(costs.get(r["id"]) if costs else None, per_meal)
             same_cuisine = sum(1 for c in chosen if c.get("cuisine") == r.get("cuisine"))
             same_protein = sum(1 for c in chosen if c.get("protein") == r.get("protein"))
             shared = len(fresh[r["id"]] & week_fresh)
@@ -198,6 +200,17 @@ def heuristic_pick(
         week_fresh |= fresh[best["id"]]
         pool = [r for r in pool if r["id"] != best["id"]]
     return [{"day": d, "recipe_id": by_day[d]["id"]} for d in days if d in by_day]
+
+
+def _busy_adjust(recipe: dict, hint: dict | None, user_theme: str | None) -> float:
+    """A busy evening (from your calendar) pushes hard against recipes that take too long. On a very busy
+    night it also favours the pizza/easy theme, unless you already set a theme for that day."""
+    if not hint:
+        return 0.0
+    score = -2.5 if int(recipe.get("prep_minutes") or 0) > hint["max_minutes"] else 0.5
+    if hint.get("theme") and not user_theme:
+        score += theme_bonus(recipe, hint["theme"])
+    return score
 
 
 def ordered_days(days: list[str]) -> list[str]:
@@ -221,6 +234,9 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
                 request_text = extra_request
                 if use_up:
                     request_text += f"\nUse up these ingredients I already have: {', '.join(use_up)}."
+                hints, _ = busy.hints(conn, week_start, days)
+                if hints:
+                    request_text += "\nBusy evenings (give these quick dinners of " + str(int(settings.get("quick_minutes") or 25)) + " minutes or less; very busy ones can be an oven pizza): " + "; ".join(f"{d} ({h['label'] or 'busy'})" for d, h in hints.items()) + "."
                 if float(settings.get("weekly_budget") or 0):
                     request_text += f"\nKeep the week's groceries to about ${float(settings['weekly_budget']):.0f}; prefer affordable recipes."
                 picks, summary = ai.plan_week(conn, settings, days, week_start, request_text,
@@ -239,6 +255,7 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
         remaining = [d for d in days if d not in taken_days]
         already = keep + [db.get_recipe(conn, p["recipe_id"]) for p in picks]
         library = db.list_recipes(conn)
+        day_hints, _ = busy.hints(conn, week_start, remaining)
         costs = None
         if float(settings.get("weekly_budget") or 0):
             costs = costing.recipe_costs(library, int(settings.get("household_size") or 2), db.price_book(conn),
@@ -246,7 +263,7 @@ def _pick_meals(conn, settings: dict, days: list[str], week_start: dt.date, use_
         fill = heuristic_pick(
             library, db.recipe_stats(conn, week_start.isoformat()), settings,
             remaining, week_start, rng=rng, already=already, affinity=db.taste_affinity(conn),
-            use_up=use_up, costs=costs,
+            use_up=use_up, costs=costs, day_hints=day_hints,
             exclude_ids={r["id"] for r in already},
         )
         picks.extend(fill)

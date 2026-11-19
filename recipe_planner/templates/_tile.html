@@ -3,13 +3,13 @@
                 'fish': ('#1f7a8c', '🐟'), 'shrimp': ('#d2603e', '🦐'), 'vegetarian': ('#3c8d4f', '🥦'),
                 'tofu': ('#6a7f2b', '🍲'), 'eggs': ('#a77a0e', '🍳'), 'lamb': ('#7a4a8c', '🍖'),
                 'turkey': ('#8c5a2b', '🦃')} %}
-{% macro tile(r, href, meta='', day=None, hero=False, banner=False, new=False, kicker='', cta_label='', dialog='', locked=False, anchor_id='') %}
+{% macro tile(r, href, meta='', day=None, hero=False, banner=False, new=False, badge='', kicker='', cta_label='', dialog='', locked=False, anchor_id='') %}
 {% set tone = TONES.get((r.protein or '')|lower, ('#44566b', '🍽️')) %}
 <div {% if anchor_id %}id="{{ anchor_id }}" {% endif %}class="tile {{ 'locked' if locked }} {{ 'hero' if hero }} {{ 'banner' if banner }} {{ '' if r.image else 'noimg' }}" style="--t: {{ tone[0] }}">
   {% if r.image %}<img src="{{ r.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
   {% endif %}
   {% if day %}<span class="chip">{{ day }}</span>{% endif %}
-  {% if new %}<span class="chip new">New</span>{% endif %}
+  {% if new or badge %}<span class="chip new">{{ badge or 'New' }}</span>{% endif %}
   {% if locked %}<span class="lock-chip">{{ lock_icon() }}Locked</span>{% endif %}
   <div class="body">
     {% if kicker %}<div class="kicker">{{ kicker }}</div>{% endif %}

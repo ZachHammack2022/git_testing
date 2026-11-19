@@ -200,12 +200,14 @@
   <p class="muted small">Check out on Amazon (choose your Whole Foods delivery window), then mark the order placed here.</p>
   <div class="row">
     <label class="inline small">Order total $ <input type="text" name="total" inputmode="decimal" placeholder="optional" style="width:110px"></label>
+    <label class="inline small">Groceries arrive <input type="date" name="delivery_date" value="{{ order.delivery_date or '' }}"></label>
     <button class="primary" type="submit">I placed the order ✓</button>
   </div>
 </form>
 {% else %}
 <form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card row">
   <label class="inline small">Order total $ <input type="text" name="total" inputmode="decimal" value="{{ '%.2f'|format(order.total) if order.total is not none else '' }}" style="width:110px"></label>
+  <label class="inline small">Groceries arrive <input type="date" name="delivery_date" value="{{ order.delivery_date or '' }}"></label>
   <button type="submit">Save</button>
 </form>
 {% endif %}

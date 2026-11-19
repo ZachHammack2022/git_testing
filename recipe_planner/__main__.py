@@ -4,6 +4,7 @@ import socket
 import threading
 import webbrowser
 
+from . import notify
 from .app import create_app
 
 # Not 5000: on macOS the AirPlay Receiver listens there and answers with a 403 page.
@@ -62,7 +63,9 @@ def main():
             print("Tip: set RECIPE_PLANNER_PASSWORD so others on your network can't open it.")
     if args.open:
         threading.Timer(1.2, webbrowser.open, args=(url,)).start()
-    create_app().run(host=host, port=port, debug=args.debug, use_reloader=False)
+    app = create_app()
+    notify.start_scheduler(app.config["DB_FILE"])      # phone reminders, if you've set a topic in Settings
+    app.run(host=host, port=port, debug=args.debug, use_reloader=False)
 
 
 if __name__ == "__main__":

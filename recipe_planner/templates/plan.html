@@ -30,11 +30,20 @@
     <div class="muted small">Average per serving across {{ nut.count }} of {{ plan.meals|length }} dinners with nutrition data.{% if settings.min_protein and nut.protein < settings.min_protein %} Below your {{ settings.min_protein }} g protein goal.{% endif %}</div></div>
 </div>
 {% endif %}
+{% set busy_days = busy_status.items()|selectattr('1.level', 'ne', 'free')|list %}
+{% if busy_days %}
+<div class="budget">
+  <div><b>Your calendar: {{ busy_days|length }} busy evening{{ 's' if busy_days|length != 1 }}</b>
+    <div class="muted small">{% for d, i in busy_days %}{{ d }}{% if i.label %} ({{ i.label }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}. Re-plan gives these nights quick dinners{% if settings.packed_meal == 'pizza' %}, and an oven pizza on the packed ones{% endif %}. Locked dinners stay as they are.</div></div>
+</div>
+{% elif busy_err %}
+<div class="flash error">Couldn't read your calendar: {{ busy_err }}</div>
+{% endif %}
 <p class="muted small" style="margin-top:-6px">Click a dinner to swap it, change the day or servings, or lock it so a re-plan keeps it.</p>
 
 <div class="tiles">
   {% for m in plan.meals %}
-    {{ tile(m.recipe, None, day=m.day, dialog='meal-dlg-' ~ m.id, locked=m.locked, anchor_id='meal-' ~ m.id,
+    {{ tile(m.recipe, None, day=m.day, dialog='meal-dlg-' ~ m.id, locked=m.locked, badge=('Packed' if busy_status[m.day].level == 'packed' else 'Busy') if busy_status.get(m.day) and busy_status[m.day].level != 'free' else '', anchor_id='meal-' ~ m.id,
             meta='Serves ' ~ m.servings ~ (' · about $' ~ '%.0f'|format(meal_costs[m.id]) if budget else '') ~ (' · ' ~ '%.0f'|format(nut_of[m.id].per_serving.protein) ~ ' g protein' if settings.min_protein and nut_of[m.id] else '') ~ (' + ' ~ m.leftovers ~ ' for lunch' if m.leftovers else '') ~ (' · ★' ~ m.fb_rating if m.fb_rating else '')) }}
   {% endfor %}
   {% if free_days or not plan.meals %}
@@ -44,7 +53,8 @@
 </div>
 
 <div class="row" style="margin-top:28px">
-  <a class="btn" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Add to calendar</a>
+  <a class="btn" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Download .ics</a>
+  {% if gcal_connected %}<form method="post" action="{{ url_for('sync_calendar', plan_id=plan.id) }}"><button type="submit" class="primary">Add to Google Calendar</button></form>{% endif %}
   <form method="post" action="{{ url_for('repeat_plan', plan_id=plan.id) }}"><button type="submit">Plan this week again</button></form>
   <form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
     <button class="danger" type="submit">Delete plan</button>

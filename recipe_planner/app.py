@@ -10,9 +10,9 @@ import secrets
 from pathlib import Path
 
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
-                   send_file, send_from_directory, url_for)
+                   send_file, send_from_directory, session, url_for)
 
-from . import ai, autocart, cookmode, costing, db, nutrition, usda, grocery, importer, leftovers, ordering, planner, prep
+from . import ai, autocart, busy, cookmode, costing, db, google, notify, nutrition, reminders, usda, grocery, importer, leftovers, ordering, planner, prep
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -148,8 +148,11 @@ def create_app(db_file: str | None = None) -> Flask:
         with_nut = [n["per_serving"] for n in with_nut if n]
         nut = ({k: sum(n[k] for n in with_nut) / len(with_nut) for k in nutrition.KEYS} | {"count": len(with_nut)}
                if with_nut else None)
+        busy_status, busy_err = busy.week_status(conn, dt.date.fromisoformat(plan["week_start"]),
+                                                 [m["day"] for m in plan["meals"]])
         return render_template(
             "plan.html", plan=plan, recipes=db.list_recipes(conn), nut=nut, settings=settings,
+            busy_status=busy_status, busy_err=busy_err, gcal_connected=google.connected(conn),
             nut_of={m["id"]: nutrition.current(m["recipe"]) for m in plan["meals"]},
             free_days=[d for d in db.DAYS if d not in used_days],
             order=db.order_for_plan(conn, plan_id), budget=budget, week_cost=week_cost,
@@ -282,6 +285,69 @@ def create_app(db_file: str | None = None) -> Flask:
         lines.append("END:VCALENDAR")
         return Response("\r\n".join(lines) + "\r\n", mimetype="text/calendar",
                         headers={"Content-Disposition": f"attachment; filename=dinners-{plan['week_start']}.ics"})
+
+    # ---------------- Google Calendar and phone reminders ----------------
+
+    def _clock(text: str) -> str:
+        m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", text or "")
+        return f"{int(m.group(1)):02d}:{m.group(2)}" if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else "18:30"
+
+    def _redirect_uri() -> str:
+        return os.environ.get("GOOGLE_REDIRECT_URI", "").strip() or url_for("google_callback", _external=True)
+
+    @app.get("/google/connect")
+    def google_connect():
+        if not google.configured():
+            flash("Google isn't set up yet: start the app with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET "
+                  "(steps are in Settings).", "error")
+            return redirect(url_for("settings") + "#calendar")
+        session["google_state"] = secrets.token_urlsafe(16)
+        return redirect(google.auth_url(_redirect_uri(), session["google_state"]))
+
+    @app.get("/google/callback")
+    def google_callback():
+        conn = get_conn()
+        if request.args.get("error"):
+            flash(f"Google sign-in was cancelled ({request.args['error']}).", "error")
+        elif not request.args.get("state") or request.args.get("state") != session.pop("google_state", None):
+            flash("That sign-in link didn't match. Try Connect again.", "error")
+        else:
+            try:
+                google.finish_sign_in(conn, request.args.get("code", ""), _redirect_uri())
+                flash("Google Calendar connected.", "info")
+            except google.GoogleError as e:
+                flash(f"Couldn't finish connecting Google: {e}", "error")
+        return redirect(url_for("settings") + "#calendar")
+
+    @app.post("/google/disconnect")
+    def google_disconnect():
+        google.disconnect(get_conn())
+        flash("Google Calendar disconnected.", "info")
+        return redirect(url_for("settings") + "#calendar")
+
+    @app.post("/plans/<int:plan_id>/calendar")
+    def sync_calendar(plan_id):
+        conn = get_conn()
+        plan = plan_or_404(plan_id)
+        try:
+            rems = reminders.build(plan, db.order_for_plan(conn, plan_id), db.get_settings(conn), request.host_url)
+            res = reminders.sync_to_google(conn, plan_id, rems)
+            flash(f"Google Calendar updated: {res['added']} added, {res['updated']} updated, {res['removed']} removed.", "info")
+        except (google.GoogleError, LookupError) as e:
+            flash(str(e), "error")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    @app.post("/notify/test")
+    def notify_test():
+        s_ = {**db.get_settings(get_conn()), **{k: request.form[k].strip() for k in ("ntfy_topic", "ntfy_server") if k in request.form}}
+        try:
+            notify.send(s_, "Meal Planner", "It works. You'll get dinner reminders here.", url_for("home", _external=True))
+            flash("Sent a test notification. Check your phone.", "info")
+        except ValueError as e:
+            flash(str(e), "error")
+        except OSError as e:
+            flash(f"Couldn't reach the ntfy server: {e}", "error")
+        return redirect(url_for("settings") + "#calendar")
 
     @app.post("/meals/<int:meal_id>/leftovers")
     def toggle_leftovers(meal_id):
@@ -570,7 +636,12 @@ def create_app(db_file: str | None = None) -> Flask:
         except ValueError:
             flash("Total should be a number, like 142.37.", "error")
             return redirect(url_for("show_order", order_id=order_id))
-        db.mark_order_placed(conn, order_id, total)
+        delivery = request.form.get("delivery_date", "").strip()
+        try:
+            delivery = dt.date.fromisoformat(delivery).isoformat() if delivery else None
+        except ValueError:
+            delivery = None
+        db.mark_order_placed(conn, order_id, total, delivery)
         if order["status"] != "placed":
             msg = "Order marked as placed. Enjoy the week — come back to rate the meals!"
             plan = db.get_plan(conn, order["plan_id"]) if order["plan_id"] else None
@@ -935,6 +1006,15 @@ def create_app(db_file: str | None = None) -> Flask:
                 "use_ai": f.get("use_ai") == "on",
                 "min_protein": max(0, f.get("min_protein", type=int) or 0),
                 "max_calories": max(0, f.get("max_calories", type=int) or 0),
+                "use_calendar": f.get("use_calendar") == "on",
+                "busy_start": max(0, min(23, f.get("busy_start", type=int) or 17)),
+                "busy_end": max(1, min(24, f.get("busy_end", type=int) or 21)),
+                "quick_minutes": max(10, min(90, f.get("quick_minutes", type=int) or 25)),
+                "packed_meal": "quick" if f.get("packed_meal") == "quick" else "pizza",
+                "dinner_time": _clock(f.get("dinner_time", "")),
+                "app_url": f.get("app_url", "").strip().rstrip("/"),
+                "ntfy_topic": re.sub(r"[^A-Za-z0-9_-]", "", f.get("ntfy_topic", "")),
+                "ntfy_server": f.get("ntfy_server", "").strip().rstrip("/") or "https://ntfy.sh",
                 "weekly_budget": max(0.0, round(f.get("weekly_budget", type=float) or 0.0, 2)),
                 "always_buy": "\n".join(l.strip() for l in f.get("always_buy", "").splitlines() if l.strip()),
             }
@@ -943,7 +1023,8 @@ def create_app(db_file: str | None = None) -> Flask:
             flash("Settings saved.", "info")
             return redirect(url_for("settings"))
         return render_template("settings.html", s=db.get_settings(conn), pantry=db.pantry(conn),
-                               usda_key=usda.has_real_key(),
+                               usda_key=usda.has_real_key(), google_ready=google.configured(),
+                               google_on=google.connected(conn), redirect_uri=_redirect_uri(),
                                picks=db.product_picks(conn))
 
     # ---------------- kitchen: what you have right now ----------------

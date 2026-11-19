@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS product_picks (
     label TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS calendar_events (
+    key TEXT PRIMARY KEY,           -- <plan>:<kind>:<id>, one per reminder this app has put on Google Calendar
+    event_id TEXT NOT NULL,
+    plan_id INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sent_reminders (
+    key TEXT PRIMARY KEY,           -- reminders already pushed to the phone
+    sent_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS food_cache (
     name TEXT PRIMARY KEY,          -- normalized ingredient name | 'can'
     data TEXT NOT NULL              -- JSON USDA match, or null if nothing fit
@@ -84,6 +95,7 @@ CREATE TABLE IF NOT EXISTS orders (
     items TEXT NOT NULL,            -- JSON list of shopping items (+ 'added' flag)
     status TEXT DEFAULT 'building', -- building | placed
     total REAL,                     -- what the order cost, entered by hand
+    delivery_date TEXT,             -- day the groceries arrive, for the reminder the evening before
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     placed_at TEXT
 );
@@ -103,6 +115,16 @@ DEFAULT_SETTINGS = {
     "always_buy": "",        # newline-separated grocery lines added to every order
     "day_themes": {},        # {"Tue": "tacos", "Mon": "meatless", "Wed": "quick"}
     "weekly_budget": 0,      # dollars; 0 = no budget
+    "google": {},            # Google sign-in tokens (see google.py)
+    "use_calendar": True,    # plan quicker dinners on busy evenings when Google Calendar is connected
+    "busy_start": 17,        # the evening window checked for events, 24h clock
+    "busy_end": 21,
+    "quick_minutes": 25,     # longest dinner for a busy evening
+    "packed_meal": "pizza",  # very busy evenings: "pizza" or "quick"
+    "dinner_time": "18:30",  # when dinner is ready; calendar events and reminders hang off this
+    "app_url": "",           # how reminders link back to the app, e.g. http://192.168.1.20:5055
+    "ntfy_topic": "",        # phone push reminders via ntfy.sh; empty = off
+    "ntfy_server": "https://ntfy.sh",
     "min_protein": 0,        # grams of protein per dinner the planner should aim for; 0 = no goal
     "max_calories": 0,       # calories per dinner to stay under; 0 = no limit
     "on_hand": [],           # [{"name", "added"}] fresh food you have now (see on_hand())
@@ -141,6 +163,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     order_cols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
     if "total" not in order_cols:
         conn.execute("ALTER TABLE orders ADD COLUMN total REAL")
+    if "delivery_date" not in order_cols:
+        conn.execute("ALTER TABLE orders ADD COLUMN delivery_date TEXT")
     if "leftovers" not in cols:
         conn.execute("ALTER TABLE plan_meals ADD COLUMN leftovers INTEGER DEFAULT 0")
     recipe_cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)")}
@@ -621,11 +645,11 @@ def save_order_items(conn, order_id: int, items: list[dict]) -> None:
     conn.commit()
 
 
-def mark_order_placed(conn, order_id: int, total: float | None = None) -> None:
+def mark_order_placed(conn, order_id: int, total: float | None = None, delivery_date: str | None = None) -> None:
     conn.execute(
         "UPDATE orders SET status='placed', placed_at=COALESCE(placed_at, CURRENT_TIMESTAMP),"
-        " total=COALESCE(?, total) WHERE id=?",
-        (total, order_id),
+        " total=COALESCE(?, total), delivery_date=COALESCE(?, delivery_date) WHERE id=?",
+        (total, delivery_date, order_id),
     )
     conn.commit()
 

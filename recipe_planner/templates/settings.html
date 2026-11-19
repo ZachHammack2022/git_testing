@@ -50,6 +50,43 @@
     <label for="nr">New recipes per week with Claude: <span id="nrv">{{ (s.new_recipe_ratio * 100)|round|int }}</span>%</label>
     <input type="range" id="nr" name="new_recipe_pct" min="0" max="100" step="10" value="{{ (s.new_recipe_ratio * 100)|round|int }}" oninput="document.getElementById('nrv').textContent=this.value">
   </div>
+  <div class="card" id="calendar">
+    <h3>Calendar and reminders</h3>
+    <p class="muted small" style="margin-top:0">Connect Google Calendar to give busy evenings a quick dinner (or an oven pizza) and to put dinners and reminders on your calendar.</p>
+    {% if google_on %}
+      <p><strong>Google Calendar is connected.</strong> <button type="submit" class="link" formaction="{{ url_for('google_disconnect') }}" formnovalidate>Disconnect</button></p>
+    {% elif google_ready %}
+      <p><a class="btn primary" href="{{ url_for('google_connect') }}">Connect Google Calendar</a></p>
+    {% else %}
+      <details open><summary><strong>One-time Google setup</strong></summary>
+        <ol class="small">
+          <li>In <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>, create a project and enable the <b>Google Calendar API</b>.</li>
+          <li>Under APIs &amp; Services, set up the <b>OAuth consent screen</b> (External, add yourself as a test user), then set its publishing status to <b>In production</b>. Otherwise Google signs you out every 7 days.</li>
+          <li>Create <b>Credentials &rarr; OAuth client ID</b> of type <b>Web application</b>, with this redirect URI: <code>{{ redirect_uri }}</code></li>
+          <li>Stop the app and start it with <code>GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... ./run.sh</code>, then come back here and press Connect. Google will warn the app is unverified; that's expected for your own app.</li>
+        </ol>
+      </details>
+    {% endif %}
+    <label class="inline" style="margin-top:12px"><input type="checkbox" name="use_calendar" {{ 'checked' if s.use_calendar }}> Plan quicker dinners on busy evenings</label>
+    <div class="row">
+      <div><label for="bs">Evening starts (hour, 24h)</label><input type="number" id="bs" name="busy_start" min="0" max="23" value="{{ s.busy_start }}" style="width:90px"></div>
+      <div><label for="be">Ends</label><input type="number" id="be" name="busy_end" min="1" max="24" value="{{ s.busy_end }}" style="width:90px"></div>
+      <div><label for="qm">Quick dinner (minutes)</label><input type="number" id="qm" name="quick_minutes" min="10" max="90" value="{{ s.quick_minutes }}" style="width:100px"></div>
+    </div>
+    <label for="pm">Very busy evenings (90+ minutes of events)</label>
+    <select id="pm" name="packed_meal"><option value="pizza" {{ 'selected' if s.packed_meal == 'pizza' }}>Oven pizza night</option><option value="quick" {{ 'selected' if s.packed_meal == 'quick' }}>Just a quick dinner</option></select>
+    <label for="dt">Dinner is ready at</label>
+    <input type="text" id="dt" name="dinner_time" value="{{ s.dinner_time }}" placeholder="18:30" style="width:100px">
+    <label for="au">Address of this app, for links in reminders <span class="muted small">(e.g. http://192.168.1.20:5055, the one your phone can open)</span></label>
+    <input type="text" id="au" name="app_url" value="{{ s.app_url }}" placeholder="http://192.168.1.20:5055" style="width:100%">
+    <h3 style="margin-top:18px">Phone reminders (ntfy)</h3>
+    <p class="muted small" style="margin-top:0">Install the free <b>ntfy</b> app, subscribe to a private topic name, and enter the same name here. You'll get pushes to start cooking, thaw the protein, expect groceries, and rate dinner. The app has to be running at those times.</p>
+    <div class="row">
+      <div><label for="nt2">Topic</label><input type="text" id="nt2" name="ntfy_topic" value="{{ s.ntfy_topic }}" placeholder="mealplanner-your-secret-words" style="width:280px"></div>
+      <div><label for="ns">Server</label><input type="text" id="ns" name="ntfy_server" value="{{ s.ntfy_server }}" style="width:220px"></div>
+    </div>
+    <p><button type="submit" formaction="{{ url_for('notify_test') }}" formnovalidate>Send a test notification</button></p>
+  </div>
   <div class="card">
     <h3>Pantry staples</h3>
     <p class="muted small">Things you always have. They're left off orders by default.</p>

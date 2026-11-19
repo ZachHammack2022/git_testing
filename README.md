@@ -50,6 +50,17 @@ If a Claude call fails, the built-in planner takes over. Set `RECIPE_PLANNER_MOD
 - **Budget.** Set a weekly grocery budget under Settings. The plan page shows estimated groceries against it, and plans lean toward cheaper recipes. Estimates use typical prices until you preview products on an order, then they use the prices it saw.
 - **Leftovers.** When you mark an order placed, what's left of fresh items (a bunch of mint you used a quarter of) goes on your Kitchen list with a use-by date, shows on Home as "Use up soon", and feeds the next plan.
 
+### Optional: Google Calendar and reminders
+
+Connect Google Calendar (Settings → Calendar and reminders) and the app will:
+
+- **Plan around your evenings.** Events between 5 and 9pm (change the window in Settings) make that night busy. Busy nights get a dinner of 25 minutes or less; nights with 90+ minutes of events get an oven pizza, or just a quick dinner if you prefer. Declined events, "free" events and the app's own events are ignored. Locked dinners are never changed.
+- **Put dinners and reminders on your calendar.** **Add to Google Calendar** on the plan page adds a "Cook: ..." event for each dinner (ending at your dinner time), a night-before reminder to thaw protein or start a marinade, a "How was dinner?" nudge the next morning, and "Groceries arrive tomorrow" if you entered a delivery date when marking the order placed. Each has a popup alert, so your phone pings. Pressing the button again updates, adds and removes events to match the plan; nothing is duplicated.
+
+One-time setup: create a Google Cloud project, enable the **Google Calendar API**, configure the OAuth consent screen and set its publishing status to **In production** (otherwise Google signs you out every 7 days; the app is only for you, so the "unverified" warning is fine), then create an **OAuth client ID** of type *Web application* with the redirect URI `http://127.0.0.1:5055/google/callback`. Start the app with `GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... ./run.sh`, and sign in from a browser on the same computer. Only your sign-in is stored in the database, never the client secret.
+
+**Phone pushes.** Install the free [ntfy](https://ntfy.sh) app, subscribe to a private topic name, and enter it in Settings. While the app is running you'll get a push when it's time to start cooking, thaw the protein, expect groceries, or rate dinner (skipped once rated). Set the app's address in Settings so the push opens the right page on your phone.
+
 ## The weekly loop
 
 | Step | Where | What happens |
