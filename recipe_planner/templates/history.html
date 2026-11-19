@@ -1,90 +1,87 @@
 {% extends "base.html" %}
+{% from "_tile.html" import tile %}
 {% block title %}History{% endblock %}
 {% block content %}
-<h1>History</h1>
-{% if favorites or learned.cuisine or retired %}
+<div class="pagehead"><h1>History</h1></div>
+
+{% if favorites %}
+<h2 style="margin-top:0">Your favorites</h2>
+<div class="tiles week">
+  {% for r, s in favorites %}
+  {{ tile(r, url_for('recipe', recipe_id=r.id), meta='★ ' ~ '%.1f'|format(s.avg_rating) ~ ' · ' ~ r.prep_minutes ~ ' min') }}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if learned.cuisine or learned.protein or retired %}
 <h2>What the planner has learned</h2>
-<div class="grid">
-  {% if favorites %}
-  <div class="card">
-    <h3>Favorites</h3>
-    <ul class="items small">
-      {% for r, s in favorites %}<li><a href="{{ url_for('recipe', recipe_id=r.id) }}" style="flex:1">{{ r.title }}</a> <span>★ {{ '%.1f'|format(s.avg_rating) }}</span></li>{% endfor %}
-    </ul>
-  </div>
-  {% endif %}
+<div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))">
   {% for field, label in [('cuisine', 'Cuisines'), ('protein', 'Proteins')] %}
   {% if learned[field] %}
-  <div class="card">
+  <div class="card" style="margin:0">
     <h3>{{ label }}</h3>
-    <ul class="items small">
+    <div class="pills">
       {% for k, v in learned[field] %}
-      <li><span style="flex:1; text-transform:capitalize">{{ k }}</span>
-        <span class="muted">{{ '%.1f'|format(v.avg) }}★ · {{ v.n }}</span>
-        <span title="effect on planning">{{ '▲' if v.score > 0.3 else ('▼' if v.score < -0.3 else '•') }}</span></li>
+      <span class="pill" style="text-transform:capitalize" title="Effect on planning">{{ k }} <small>{{ '%.1f'|format(v.avg) }}★, {{ v.n }}</small> {{ '▲' if v.score > 0.3 else ('▼' if v.score < -0.3 else '') }}</span>
       {% endfor %}
-    </ul>
+    </div>
   </div>
   {% endif %}
   {% endfor %}
   {% if retired %}
-  <div class="card">
+  <div class="card" style="margin:0">
     <h3>Retired ({{ retired|length }})</h3>
-    <p class="small">{% for r in retired %}<a href="{{ url_for('recipe', recipe_id=r.id) }}">{{ r.title }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>
+    <div class="pills">{% for r in retired %}<a class="pill" href="{{ url_for('recipe', recipe_id=r.id) }}" style="text-decoration:none">{{ r.title }}</a>{% endfor %}</div>
   </div>
   {% endif %}
 </div>
 {% endif %}
-<h2>Plans</h2>
-<div class="card">
-  {% if plans %}
-  <table>
-    <tr><th>Week</th><th>Dinners</th><th>Rated</th><th>Planner</th><th></th></tr>
-    {% for p in plans %}
-    <tr><td><a href="{{ url_for('show_plan', plan_id=p.id) }}">{{ p.week_start|pretty_date }}</a></td>
-      <td>{{ p.meal_count }}</td><td>{{ p.feedback_count }}</td>
-      <td class="small muted">{{ 'Claude' if p.planner == 'claude' else 'built-in' }}</td>
-      <td class="small"><a href="{{ url_for('feedback', plan_id=p.id) }}">rate</a> ·
-        <form method="post" action="{{ url_for('repeat_plan', plan_id=p.id) }}" style="display:inline"><button class="link small" type="submit">repeat</button></form></td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="muted">No plans yet.</p>{% endif %}
+
+<h2>Weeks</h2>
+{% if plans %}
+<div class="cards">
+  {% for p in plans %}
+  <a class="linkcard" href="{{ url_for('show_plan', plan_id=p.id) }}">
+    <div class="big">{{ p.week_start|pretty_date }}</div>
+    <div class="muted">{{ p.meal_count }} dinner{{ 's' if p.meal_count != 1 }}, {{ p.feedback_count }} rated</div>
+    <div class="muted small">Planned by {{ 'Claude' if p.planner == 'claude' else 'your ratings' }}</div>
+  </a>
+  {% endfor %}
 </div>
+{% else %}<div class="empty">No plans yet. Make one from <a href="{{ url_for('home') }}">This week</a>.</div>{% endif %}
+
 {% if spending.weeks %}
 <h2>Spending</h2>
-<div class="grid">
-  <div class="card"><div class="muted small">Average per week</div><div style="font-size:1.6rem; font-weight:700">${{ '%.0f'|format(spending.avg_week) }}</div></div>
-  {% if spending.avg_dinner %}<div class="card"><div class="muted small">Average per dinner</div><div style="font-size:1.6rem; font-weight:700">${{ '%.2f'|format(spending.avg_dinner) }}</div>
-    <div class="muted small">includes everything on the order</div></div>{% endif %}
-  <div class="card">
-    <div class="muted small">Recent weeks</div>
-    <table class="small">{% for w in spending.weeks %}<tr><td>{{ w.week_start|pretty_date }}</td><td style="text-align:right">${{ '%.2f'|format(w.total) }}</td></tr>{% endfor %}</table>
-  </div>
+<div class="cards">
+  <div class="stat"><span class="muted small">Average per week</span><b>${{ '%.0f'|format(spending.avg_week) }}</b></div>
+  {% if spending.avg_dinner %}<div class="stat"><span class="muted small">Average per dinner</span><b>${{ '%.2f'|format(spending.avg_dinner) }}</b><span class="muted small">includes everything on the order</span></div>{% endif %}
+  {% for w in spending.weeks %}<div class="stat"><span class="muted small">Week of {{ w.week_start|pretty_date }}</span><b>${{ '%.2f'|format(w.total) }}</b></div>{% endfor %}
 </div>
 {% endif %}
+
 <h2>Orders</h2>
-<div class="card">
-  {% if orders %}
-  <table>
-    <tr><th>Started</th><th>Items</th><th>Status</th><th>Total</th></tr>
-    {% for o in orders %}
-    <tr><td><a href="{{ url_for('show_order', order_id=o.id) }}">{{ o.created_at|pretty_date }}</a></td>
-      <td>{{ o.added_count }} / {{ o.item_count }}</td>
-      <td>{{ 'placed ✓' if o.status == 'placed' else 'in progress' }}</td>
-      <td>{{ '$%.2f'|format(o.total) if o.total is not none else '' }}</td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="muted">No orders yet.</p>{% endif %}
+{% if orders %}
+<div class="cards">
+  {% for o in orders %}
+  <a class="linkcard" href="{{ url_for('show_order', order_id=o.id) }}">
+    <div class="big">{{ o.created_at|pretty_date }}</div>
+    <div class="muted">{{ 'Placed' if o.status == 'placed' else 'In progress' }}{% if o.total is not none %}, ${{ '%.2f'|format(o.total) }}{% endif %}</div>
+    <div class="muted small">{{ o.added_count }} of {{ o.item_count }} items in cart</div>
+  </a>
+  {% endfor %}
 </div>
+{% else %}<div class="empty">No orders yet.</div>{% endif %}
+
 <h2>Recent feedback</h2>
-<div class="card">
-  {% if feedback %}
-  <table>
-    {% for f in feedback %}
-    <tr><td><a href="{{ url_for('recipe', recipe_id=f.recipe_id) }}">{{ f.title }}</a></td><td>{{ '★' * f.rating }}</td>
-      <td class="small">{{ f.notes }}</td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="muted">Rate some meals and they'll show up here.</p>{% endif %}
+{% if feedback %}
+<div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))">
+  {% for f in feedback %}
+  <a class="linkcard" href="{{ url_for('recipe', recipe_id=f.recipe_id) }}">
+    <div class="big">{{ f.title }}</div>
+    <div style="color:#d9941a; font-size:1.2rem">{{ '★' * f.rating }}</div>
+    {% if f.notes %}<div class="muted small">{{ f.notes }}</div>{% endif %}
+  </a>
+  {% endfor %}
 </div>
+{% else %}<div class="empty">Rate some meals and they'll show up here.</div>{% endif %}
 {% endblock %}

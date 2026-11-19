@@ -1,31 +1,37 @@
 {% extends "base.html" %}
+{% from "_tile.html" import thumb %}
 {% block title %}Rate meals{% endblock %}
 {% block content %}
-<h1>How was the week?</h1>
-<p class="muted">Week of {{ plan.week_start|pretty_date }}. Rate what you cooked — skip anything you didn't make. Ratings and notes shape future plans; "Never again" retires a recipe.</p>
+<div class="pagehead"><div>
+  <h1>How was the week?</h1>
+  <p class="muted" style="max-width:62ch">Week of {{ plan.week_start|pretty_date }}. Rate what you cooked and skip anything you didn't make. Ratings and notes shape future plans, and "Never again" retires a recipe.</p>
+</div></div>
 <form method="post">
+  <div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(340px, 1fr))">
   {% for m in plan.meals %}
-  <div class="card">
-    <div class="day">{{ m.day }}</div>
-    <h3>{{ m.recipe.title }}</h3>
-    <div class="stars" role="radiogroup" aria-label="Rating">
-      {% for n in [5,4,3,2,1] %}
-        <input type="radio" id="r{{ m.id }}-{{ n }}" name="rating-{{ m.id }}" value="{{ n }}" {{ 'checked' if m.fb_rating == n }}>
-        <label for="r{{ m.id }}-{{ n }}" title="{{ n }} star{{ 's' if n > 1 }}">★</label>
-      {% endfor %}
+  <div class="card rate" style="margin:0">
+    {{ thumb(m.recipe, m.day) }}
+    <div class="inner">
+      <div class="stars" role="radiogroup" aria-label="Rating for {{ m.recipe.title }}">
+        {% for n in [5,4,3,2,1] %}
+          <input type="radio" id="r{{ m.id }}-{{ n }}" name="rating-{{ m.id }}" value="{{ n }}" {{ 'checked' if m.fb_rating == n }}>
+          <label for="r{{ m.id }}-{{ n }}" title="{{ n }} star{{ 's' if n > 1 }}">★</label>
+        {% endfor %}
+      </div>
+      <div class="seg">
+        {% for val, label in [('yes','Make again'),('tweak','With changes'),('no','Never again')] %}
+        <label><input type="radio" name="again-{{ m.id }}" value="{{ val }}" {{ 'checked' if (m.fb_make_again or 'yes') == val }}> {{ label }}</label>
+        {% endfor %}
+      </div>
+      <input type="text" name="notes-{{ m.id }}" value="{{ m.fb_notes or '' }}" placeholder="Notes: too salty, kids loved it, double the sauce" aria-label="Notes for {{ m.recipe.title }}" style="width:100%; margin-top:12px">
     </div>
-    <div class="row small" style="margin-top:6px">
-      {% for val, label in [('yes','Make again'),('tweak','Make again, with changes'),('no','Never again')] %}
-      <label class="inline"><input type="radio" name="again-{{ m.id }}" value="{{ val }}" {{ 'checked' if (m.fb_make_again or 'yes') == val }}> {{ label }}</label>
-      {% endfor %}
-    </div>
-    <input type="text" name="notes-{{ m.id }}" value="{{ m.fb_notes or '' }}" placeholder="Notes: too salty, kids loved it, double the sauce…" style="width:100%; margin-top:8px">
   </div>
   {% endfor %}
-  <div class="card">
-    <label for="gn">Anything for future weeks in general?</label>
+  </div>
+  <div class="card narrow" style="margin-top:18px">
+    <label for="gn" style="margin-top:0">Anything for future weeks in general?</label>
     <input type="text" id="gn" name="general_notes" placeholder="e.g. more fish, fewer pasta nights, quicker on weeknights" style="width:100%">
   </div>
-  <button class="primary" type="submit">Save feedback</button>
+  <div class="savebar"><button class="primary big btn" type="submit">Save feedback</button></div>
 </form>
 {% endblock %}

@@ -174,7 +174,7 @@ def test_lock_and_regenerate_routes(client, app):
     assert db.get_meal(conn, meal["id"])["locked"] == 1
     assert client.post(f"/plans/{pid}/regenerate").status_code == 302
     assert db.get_meal(conn, meal["id"])["recipe_id"] == meal["recipe_id"]
-    assert "🔒" in client.get(f"/plans/{pid}").get_data(as_text=True)
+    assert "lock-chip" in client.get(f"/plans/{pid}").get_data(as_text=True)
 
 
 def test_migration_adds_locked_column(tmp_path):

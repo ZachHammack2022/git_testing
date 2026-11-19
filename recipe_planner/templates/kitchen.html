@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Kitchen{% endblock %}
 {% block content %}
-<h1>Kitchen</h1>
-<p class="muted">What you have right now. The next plan tries to use it up, and shopping lists leave it unchecked.</p>
+<div class="narrow">
+<div class="pagehead"><div><h1>Kitchen</h1>
+<p class="muted" style="max-width:60ch">What you have right now. The next plan tries to use it up, and shopping lists leave it unchecked.</p></div></div>
 
 {% if found %}
 <form method="post" action="{{ url_for('confirm_kitchen') }}" class="card" style="border-color: var(--accent)">
@@ -27,7 +28,7 @@
 {% endif %}
 
 <div class="card">
-  <h3 style="margin-top:0">📷 Snap your fridge or a receipt</h3>
+  <h3 style="margin-top:0">Snap your fridge or a receipt</h3>
   {% if ai_available %}
   <p class="muted small">Take a photo of the fridge, a pantry shelf or a grocery receipt (up to 5 at once). Claude lists what it sees and you confirm before anything is saved.</p>
   <form method="post" action="{{ url_for('scan_kitchen') }}" enctype="multipart/form-data" id="scan-form" class="row">
@@ -44,15 +45,16 @@
   <p class="muted small">Fresh food you have now, comma or line separated. Each item drops off after {{ keep_days }} days.</p>
   <textarea name="on_hand" rows="4" placeholder="e.g. spinach, half a cabbage, feta, 2 chicken thighs">{{ on_hand|map(attribute='name')|join(', ') }}</textarea>
   {% if on_hand %}
-  <p class="muted small" style="margin:4px 0 0">{% for i in on_hand %}{{ i.name }} <span title="added">({{ i.added|pretty_date }})</span>{{ ' · ' if not loop.last }}{% endfor %}</p>
+  <div class="pills" style="margin-top:10px">{% for i in on_hand %}<span class="pill">{{ i.name }} <small>{{ i.added|pretty_date }}</small></span>{% endfor %}</div>
   {% endif %}
   <p><button type="submit">Save</button></p>
 </form>
 
 <div class="card">
   <h3 style="margin-top:0">Pantry staples</h3>
-  <p class="small">{{ pantry|join(', ') or 'None yet.' }}</p>
+  {% if pantry %}<div class="pills">{% for p in pantry %}<span class="pill">{{ p }}</span>{% endfor %}</div>{% else %}<p class="muted small">None yet.</p>{% endif %}
   <a class="small" href="{{ url_for('settings') }}">Edit in Settings</a>
+</div>
 </div>
 {% endblock %}
 {% block scripts %}

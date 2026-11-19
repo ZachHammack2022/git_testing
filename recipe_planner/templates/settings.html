@@ -2,15 +2,7 @@
 {% block title %}Settings{% endblock %}
 {% block content %}
 <h1>Settings</h1>
-<div class="card">
-  <h3>Look</h3>
-  <p class="muted small" style="margin-top:0">Saved on this device, so your phone and laptop can differ.</p>
-  <div class="themes">
-    <button type="button" data-theme-pick="" ><span class="swatch"><i style="background:#13261d"></i><i style="background:#c2254f"></i><i style="background:#f4a93b"></i><i style="background:#edf0ea"></i></span><b>Market stall</b><span class="small muted">Big photos, dish names on the picture.</span></button>
-    <button type="button" data-theme-pick="cookbook"><span class="swatch"><i style="background:#20231f"></i><i style="background:#2f6b3f"></i><i style="background:#e3b23c"></i><i style="background:#f6f7f4"></i></span><b>Cookbook</b><span class="small muted">Photo on top, serif name underneath, light and calm.</span></button>
-    <button type="button" data-theme-pick="playful"><span class="swatch"><i style="background:#1b1340"></i><i style="background:#ff5a36"></i><i style="background:#ffd23f"></i><i style="background:#e9e5ff"></i></span><b>Bright and playful</b><span class="small muted">Chunky outlines, bold colour, big friendly shapes.</span></button>
-  </div>
-</div>
+<div class="narrow">
 <form method="post">
   <div class="card">
     <h3>Household</h3>
@@ -19,12 +11,14 @@
       <div><label for="mp">Max cook time (min)</label><input type="number" id="mp" name="max_prep_minutes" min="10" step="5" value="{{ s.max_prep_minutes }}" style="width:90px"></div>
     </div>
     <label>Cook dinner on <span class="muted small">— optional theme per day, e.g. "tacos", "quick", "meatless", "fish", "pizza"</span></label>
-    <table class="small">
+    <div class="daygrid">
       {% for d in DAYS %}
-      <tr><td style="width:90px"><label class="inline"><input type="checkbox" name="day-{{ d }}" {{ 'checked' if d in s.cook_days }}> {{ d }}</label></td>
-        <td><input type="text" name="theme-{{ d }}" value="{{ (s.day_themes or {}).get(d, '') }}" placeholder="any" style="width:100%"></td></tr>
+      <div class="day-cell">
+        <label class="inline"><input type="checkbox" name="day-{{ d }}" {{ 'checked' if d in s.cook_days }}> <strong>{{ d }}</strong></label>
+        <input type="text" name="theme-{{ d }}" value="{{ (s.day_themes or {}).get(d, '') }}" placeholder="any" aria-label="Theme for {{ d }}">
+      </div>
       {% endfor %}
-    </table>
+    </div>
   </div>
   <div class="card">
     <h3>Tastes</h3>
@@ -58,7 +52,7 @@
     <p class="muted small">Groceries you get every week regardless of recipes — one per line, e.g. "1 gallon whole milk", "2 lb bananas", "coffee beans". Added to each new order.</p>
     <textarea name="always_buy" rows="5">{{ s.always_buy }}</textarea>
   </div>
-  <button class="primary" type="submit">Save settings</button>
+  <div class="savebar"><button class="primary big btn" type="submit">Save settings</button></div>
 </form>
 
 <div class="card" id="picks" style="margin-top:20px">
@@ -79,18 +73,5 @@
   <p class="muted small">Everything lives in one SQLite file. Download a copy now and then.</p>
   <a class="btn" href="{{ url_for('backup') }}">Download backup</a>
 </div>
-{% endblock %}
-{% block scripts %}
-<script>
-  const cur = (() => { try { return localStorage.getItem('theme') || ''; } catch (e) { return ''; } })();
-  document.querySelectorAll('[data-theme-pick]').forEach(b => {
-    const v = b.dataset.themePick;
-    b.classList.toggle('on', v === cur);
-    b.addEventListener('click', () => {
-      try { v ? localStorage.setItem('theme', v) : localStorage.removeItem('theme'); } catch (e) {}
-      if (v) document.documentElement.dataset.theme = v; else delete document.documentElement.dataset.theme;
-      document.querySelectorAll('[data-theme-pick]').forEach(x => x.classList.toggle('on', x === b));
-    });
-  });
-</script>
+</div>
 {% endblock %}

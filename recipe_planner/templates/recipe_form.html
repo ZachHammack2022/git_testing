@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit recipe' if r and r.id else 'New recipe' }}{% endblock %}
 {% block content %}
-<h1>{{ 'Edit recipe' if r and r.id else 'New recipe' }}</h1>
+<div class="narrow">
+<div class="pagehead"><h1>{{ 'Edit recipe' if r and r.id else 'New recipe' }}</h1></div>
 {% if not (r and r.id) %}
 <form method="post" action="{{ url_for('import_url') }}" class="card">
   <h3>Import from a link</h3>
@@ -41,4 +42,5 @@
   <input type="text" id="tg" name="tags" value="{{ r.tags|join(', ') if r else '' }}" style="width:100%">
   <p><button class="primary" type="submit">Save recipe</button></p>
 </form>
+</div>
 {% endblock %}

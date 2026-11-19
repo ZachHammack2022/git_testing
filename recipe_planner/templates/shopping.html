@@ -1,19 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Shopping list{% endblock %}
 {% block content %}
-<div class="spread">
+<a class="back small" href="{{ url_for('show_plan', plan_id=plan.id) }}">Back to the plan</a>
+<div class="pagehead">
   <div>
     <h1>Shopping list</h1>
-    <p class="muted small">Week of {{ plan.week_start|pretty_date }} · {{ plan.meals|length }} dinners · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">back to plan</a></p>
+    <p class="muted">Week of {{ plan.week_start|pretty_date }}, {{ plan.meals|length }} dinners.</p>
   </div>
-  {% if order %}<a class="btn" href="{{ url_for('show_order', order_id=order.id) }}">Open existing order →</a>{% endif %}
+  {% if order %}<a class="btn" href="{{ url_for('show_order', order_id=order.id) }}">Open existing order</a>{% endif %}
 </div>
 
 <form method="post" action="{{ url_for('start_order', plan_id=plan.id) }}">
   <p class="muted small">Uncheck anything you don't need to buy. Pantry staples (<a href="{{ url_for('settings') }}">Settings</a>) and food you have in your <a href="{{ url_for('kitchen') }}">Kitchen</a> start unchecked.</p>
+  <div class="groups">
   {% for cat, items in groups %}
   <div class="card">
-    <h3 style="text-transform:capitalize">{{ cat }}</h3>
+    <h3>{{ cat }}</h3>
     <ul class="items">
       {% for it in items %}
       <li>
@@ -27,10 +29,11 @@
     </ul>
   </div>
   {% endfor %}
+  </div>
   {% if always_buy %}
   <div class="card">
     <h3>Always buy</h3>
-    <p class="small">{{ always_buy|join(' · ') }}</p>
+    <p class="small">{{ always_buy|join(', ') }}</p>
     <label class="inline small"><input type="hidden" name="include_always" value="off"><input type="checkbox" name="include_always" value="on" checked> Add these to the order</label>
     <a class="small" href="{{ url_for('settings') }}">edit</a>
   </div>
@@ -38,7 +41,7 @@
   <p><label class="inline small"><input type="checkbox" name="remember_pantry"> Remember unchecked items as pantry staples (skip them in future lists)</label></p>
   <input type="hidden" name="buy" value="">
   <div id="hidden-fields"></div>
-  <button class="primary" type="submit">Order from Whole Foods →</button>
+  <div class="savebar"><button class="primary big btn" type="submit">Order from Whole Foods</button></div>
 </form>
 
 <details style="margin-top:16px">

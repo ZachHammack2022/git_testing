@@ -1,92 +1,133 @@
 {% extends "base.html" %}
+{% from "_tile.html" import tile, thumb, lock_icon %}
 {% block title %}Plan · {{ plan.week_start|pretty_date }}{% endblock %}
 {% block content %}
-<div class="spread">
+{% set locked_n = plan.meals|selectattr('locked')|list|length %}
+<div class="pagehead">
   <div>
     <h1>Week of {{ plan.week_start|pretty_date }}</h1>
-    <p class="muted small">Planned by {{ 'Claude' if plan.planner == 'claude' else 'your ratings' }}{% if plan.notes %} · {{ plan.notes }}{% endif %}</p>
+    <p class="muted">{{ plan.meals|length }} dinner{{ 's' if plan.meals|length != 1 }}{% if locked_n %}, {{ locked_n }} locked{% endif %}. Planned by {{ 'Claude' if plan.planner == 'claude' else 'your ratings' }}.{% if plan.notes %} {{ plan.notes }}{% endif %}</p>
   </div>
   <div class="row">
-    <a class="btn primary" href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list →</a>
-    <a class="btn" href="{{ url_for('prep_page', plan_id=plan.id) }}">🔪 Prep plan</a>
+    <a class="btn primary" href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list</a>
+    <a class="btn" href="{{ url_for('prep_page', plan_id=plan.id) }}">Prep plan</a>
     <a class="btn" href="{{ url_for('feedback', plan_id=plan.id) }}">Rate meals</a>
+    <button type="button" data-open="replan-dlg">Re-plan</button>
   </div>
 </div>
+<p class="muted small" style="margin-top:-6px">Click a dinner to swap it, change the day or servings, or lock it so a re-plan keeps it.</p>
 
-<details class="card" style="margin-top:14px">
-  <summary>Re-plan this week — keeps meals you've locked 🔒</summary>
-  <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="row">
-    <input type="text" name="use_up" placeholder="Use up: spinach, feta…" style="flex:1; min-width:160px">
-    {% if ai_available %}
-    <input type="text" name="request" placeholder="Optional: what should change?" style="flex:1; min-width:200px">
-    <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
-    {% endif %}
-    <button type="submit" onclick="this.textContent='Re-planning…'">Re-plan unlocked meals</button>
+<div class="tiles">
+  {% for m in plan.meals %}
+    {{ tile(m.recipe, None, day=m.day, dialog='meal-dlg-' ~ m.id, locked=m.locked, anchor_id='meal-' ~ m.id,
+            meta='Serves ' ~ m.servings ~ (' + ' ~ m.leftovers ~ ' for lunch' if m.leftovers else '') ~ (' · ★' ~ m.fb_rating if m.fb_rating else '')) }}
+  {% endfor %}
+  {% if free_days or not plan.meals %}
+  <div class="tile add"><div class="body"><div class="plus" aria-hidden="true">+</div>
+    <h3 class="name"><a href="#add-dlg" data-open="add-dlg">Add a dinner</a></h3></div></div>
+  {% endif %}
+</div>
+
+<div class="row" style="margin-top:28px">
+  <a class="btn" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Add to calendar</a>
+  <form method="post" action="{{ url_for('repeat_plan', plan_id=plan.id) }}"><button type="submit">Plan this week again</button></form>
+  <form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
+    <button class="danger" type="submit">Delete plan</button>
   </form>
-</details>
+</div>
 
 {% for m in plan.meals %}
-<div class="card meal" id="meal-{{ m.id }}">
-  <div class="spread">
-    <div>
-      <div class="day">{{ m.day }}</div>
-      <h3><a href="{{ url_for('recipe', recipe_id=m.recipe.id) }}">{{ m.recipe.title }}</a></h3>
-      <div class="muted small">{{ m.recipe.cuisine }} · {{ m.recipe.protein }} · {{ m.recipe.prep_minutes }} min
-        {% if m.recipe.source == 'ai' %}<span class="pill">new from Claude</span>{% endif %}
-        {% if m.fb_rating %}<span class="pill">{{ '★' * m.fb_rating }}</span>{% endif %}</div>
-      {% if m.recipe.description %}<p class="small">{{ m.recipe.description }}</p>{% endif %}
+<dialog class="sheet" id="meal-dlg-{{ m.id }}" aria-label="{{ m.recipe.title }}">
+  <div style="position:relative">{{ thumb(m.recipe, m.day) }}<form method="dialog"><button class="x" aria-label="Close">×</button></form></div>
+  <div class="body">
+    <div class="links">
+      <a href="{{ url_for('cook', meal_id=m.id) }}">Cook this dinner</a>
+      <a href="{{ url_for('recipe', recipe_id=m.recipe.id) }}">View recipe</a>
     </div>
-    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
-      <button type="submit" formaction="{{ url_for('lock_meal', meal_id=m.id) }}" title="{{ 'Unlock' if m.locked else 'Lock: keep when re-planning' }}" aria-label="{{ 'Unlock' if m.locked else 'Lock' }}">{{ '🔒' if m.locked else '🔓' }}</button>
-      <button type="submit" formaction="{{ url_for('toggle_leftovers', meal_id=m.id) }}" title="Cook extra for lunch the next day" class="{{ 'primary' if m.leftovers }}">🥡{{ ' +' ~ m.leftovers if m.leftovers }}</button>
-      <a class="btn" href="{{ url_for('cook', meal_id=m.id) }}">Cook</a>
-      <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
+
+    <form method="post" action="{{ url_for('lock_meal', meal_id=m.id) }}">
+      <button type="submit" class="switch {{ 'on' if m.locked }}" aria-pressed="{{ 'true' if m.locked else 'false' }}">
+        <span class="ico">{{ lock_icon(open=not m.locked) }}</span>
+        <span><b>{{ 'Locked' if m.locked else 'Not locked' }}</b><small>{{ 'This dinner stays when you re-plan.' if m.locked else 'A re-plan can replace this dinner.' }}</small></span>
+        <span class="state">{{ 'On' if m.locked else 'Off' }}</span>
+      </button>
     </form>
-  </div>
-  <details>
-    <summary>Swap or change</summary>
-    <form method="post" action="{{ url_for('swap_meal', meal_id=m.id) }}" class="row">
+    <form method="post" action="{{ url_for('toggle_leftovers', meal_id=m.id) }}">
+      <button type="submit" class="switch {{ 'on' if m.leftovers }}" aria-pressed="{{ 'true' if m.leftovers else 'false' }}">
+        <span><b>Cook extra for lunch tomorrow</b><small>{{ 'Adds ' ~ m.leftovers ~ ' serving' ~ ('s' if m.leftovers != 1) ~ ' to the shopping list.' if m.leftovers else 'Scales up the shopping list.' }}</small></span>
+        <span class="state">{{ 'On' if m.leftovers else 'Off' }}</span>
+      </button>
+    </form>
+
+    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="sect">
+      <b>Change this dinner</b>
+      <div class="fields">
+        <div><label for="d-{{ m.id }}">Day</label><select id="d-{{ m.id }}" name="day">{% for d in DAYS %}<option {{ 'selected' if d == m.day }}>{{ d }}</option>{% endfor %}</select></div>
+        <div><label for="s-{{ m.id }}">Servings</label><input type="number" id="s-{{ m.id }}" name="servings" value="{{ m.servings }}" min="1" max="20"></div>
+        <div class="wide"><label for="r-{{ m.id }}">Recipe</label>
+          <select id="r-{{ m.id }}" name="recipe_id">{% for r in recipes %}<option value="{{ r.id }}" {{ 'selected' if r.id == m.recipe_id }}>{{ r.title }}</option>{% endfor %}</select></div>
+      </div>
+      <div><button type="submit" class="primary">Save changes</button></div>
+    </form>
+
+    <form method="post" action="{{ url_for('swap_meal', meal_id=m.id) }}" class="sect">
+      <b>Swap for something else</b>
       {% if ai_available %}
-      <input type="text" name="request" placeholder="Optional: what do you feel like? e.g. something lighter" style="flex:1; min-width:200px">
-      <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
-      <button type="submit" onclick="this.textContent='Swapping…'">Swap</button>
+      <input type="text" name="request" placeholder="What do you feel like? e.g. something lighter" aria-label="What do you feel like?">
+      <label class="inline small"><input type="checkbox" name="use_ai" checked> Ask Claude</label>
+      <div><button type="submit" onclick="this.textContent='Swapping…'">Swap</button></div>
       {% else %}
-      <button type="submit">Swap for another recipe</button>
+      <div><button type="submit">Swap for another recipe</button></div>
       {% endif %}
     </form>
-    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row" style="margin-top:8px">
-      <select name="recipe_id" style="flex:1; min-width:200px">
-        {% for r in recipes %}<option value="{{ r.id }}" {{ 'selected' if r.id == m.recipe_id }}>{{ r.title }}</option>{% endfor %}
-      </select>
-      <select name="day">{% for d in DAYS %}<option {{ 'selected' if d == m.day }}>{{ d }}</option>{% endfor %}</select>
-      <button type="submit">Update</button>
+
+    <form method="post" action="{{ url_for('delete_meal', meal_id=m.id) }}" class="sect">
+      <div><button class="danger" type="submit">Remove this dinner</button></div>
     </form>
-    <form method="post" action="{{ url_for('delete_meal', meal_id=m.id) }}" style="margin-top:8px">
-      <button class="danger" type="submit">Remove this dinner</button>
-    </form>
-  </details>
-</div>
-{% else %}
-<p class="muted">No dinners in this plan yet.</p>
+  </div>
+</dialog>
 {% endfor %}
 
-<div class="card">
-  <h3>Add a dinner</h3>
-  <form method="post" action="{{ url_for('add_meal', plan_id=plan.id) }}" class="row">
-    <select name="day">{% for d in (free_days or DAYS) %}<option>{{ d }}</option>{% endfor %}</select>
-    <select name="recipe_id" style="flex:1; min-width:200px">
-      <option value="">Choose a recipe…</option>
-      {% for r in recipes %}<option value="{{ r.id }}">{{ r.title }}</option>{% endfor %}
-    </select>
-    <button type="submit">Add</button>
-  </form>
-</div>
+<dialog class="sheet" id="add-dlg" aria-label="Add a dinner">
+  <div class="body">
+    <div class="spread"><h2>Add a dinner</h2><form method="dialog"><button aria-label="Close">Close</button></form></div>
+    <form method="post" action="{{ url_for('add_meal', plan_id=plan.id) }}" class="fields">
+      <div><label for="add-day">Day</label><select id="add-day" name="day">{% for d in (free_days or DAYS) %}<option>{{ d }}</option>{% endfor %}</select></div>
+      <div class="wide"><label for="add-r">Recipe</label>
+        <select id="add-r" name="recipe_id" required><option value="">Choose a recipe…</option>{% for r in recipes %}<option value="{{ r.id }}">{{ r.title }}</option>{% endfor %}</select></div>
+      <div class="wide"><button type="submit" class="primary">Add dinner</button></div>
+    </form>
+  </div>
+</dialog>
 
-<div class="row">
-  <a class="btn small" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Add to calendar (.ics)</a>
-  <form method="post" action="{{ url_for('repeat_plan', plan_id=plan.id) }}"><button class="small" type="submit">Plan this week again</button></form>
-  <form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
-    <button class="danger small" type="submit">Delete plan</button>
-  </form>
-</div>
+<dialog class="sheet" id="replan-dlg" aria-label="Re-plan this week">
+  <div class="body">
+    <div class="spread"><h2>Re-plan this week</h2><form method="dialog"><button aria-label="Close">Close</button></form></div>
+    <p class="muted" style="margin:0">{% if locked_n %}Locked dinners stay. {% endif %}{{ plan.meals|length - locked_n }} dinner{{ 's' if plan.meals|length - locked_n != 1 }} will be replaced.</p>
+    <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="fields">
+      <div class="wide"><label for="rp-use">Use up</label><input type="text" id="rp-use" name="use_up" placeholder="spinach, feta…"></div>
+      {% if ai_available %}
+      <div class="wide"><label for="rp-req">What should change?</label><input type="text" id="rp-req" name="request" placeholder="Optional"></div>
+      <div class="wide"><label class="inline"><input type="checkbox" name="use_ai" checked> Ask Claude</label></div>
+      {% endif %}
+      <div class="wide"><button type="submit" class="primary" onclick="this.textContent='Re-planning…'">Re-plan unlocked dinners</button></div>
+    </form>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+  const byId = id => document.getElementById(id);
+  document.querySelectorAll('[data-open]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); byId(a.dataset.open).showModal();
+  }));
+  document.querySelectorAll('dialog.sheet').forEach(d => {
+    // Click on the dimmed backdrop closes the sheet.
+    d.addEventListener('click', e => { if (e.target === d) d.close(); });
+    d.addEventListener('close', () => history.replaceState(null, '', location.pathname));
+  });
+  // After saving a change the page reloads at #meal-<id>: reopen that dinner so the result is visible.
+  const m = location.hash.match(/^#meal-(\d+)$/);
+  if (m && byId('meal-dlg-' + m[1])) byId('meal-dlg-' + m[1]).showModal();
+</script>
 {% endblock %}
