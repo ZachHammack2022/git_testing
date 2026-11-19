@@ -1,3 +1,5 @@
+import os
+from types import SimpleNamespace
 from recipe_planner import autocart, db
 
 
@@ -70,7 +72,7 @@ def test_autofill_routes(client, app, monkeypatch):
     started = {}
     monkeypatch.setattr(autocart, "playwright_available", lambda: True)
     import subprocess
-    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.setdefault("args", args))
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: SimpleNamespace(pid=os.getpid(), args=started.setdefault("args", args)))
     monkeypatch.setenv("RECIPE_DB", app.config["DB_FILE"])
     client.post(f"/orders/{oid}/autofill")
     assert started["args"][-3:] == ["--order", str(oid), "--no-prompt"]
@@ -150,7 +152,7 @@ def test_sync_route(client, app, monkeypatch):
     monkeypatch.setattr(autocart, "playwright_available", lambda: True)
     started = {}
     import subprocess
-    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.setdefault("args", args))
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: SimpleNamespace(pid=os.getpid(), args=started.setdefault("args", args)))
     r = client.post(f"/orders/{oid}/sync", json={})
     assert r.get_json()["started"] and "--sync" in started["args"] and "--show" not in started["args"]
     assert autocart.read_status(oid)["state"] == "syncing"

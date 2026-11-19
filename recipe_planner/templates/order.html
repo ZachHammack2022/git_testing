@@ -72,7 +72,8 @@
   <p class="small" style="margin-bottom:0">One-time setup: in a terminal in the app folder run<br>
     <code>.venv/bin/pip install playwright &amp;&amp; .venv/bin/python -m playwright install chromium</code><br>then restart the app.</p>
   {% endif %}
-  <div id="autofill-msg" class="flash {{ 'error' if autofill.state == 'error' }}" style="margin:10px 0 0; {{ '' if autofill.message else 'display:none' }}">{{ autofill.message }}</div>
+  {% set fill_msg = autofill.message if autofill.state not in ('syncing', 'previewing') and not autofill.pending_preview else '' %}
+  <div id="autofill-msg" class="flash {{ 'error' if autofill.state == 'error' }}" style="margin:10px 0 0; {{ '' if fill_msg else 'display:none' }}">{{ fill_msg }}</div>
   <form method="post" action="{{ url_for('autofill_go', order_id=order.id) }}" id="go-form" style="margin-top:8px; {{ '' if autofill.state == 'signin' else 'display:none' }}">
     <button type="submit">I'm signed in — start</button>
   </form>
@@ -111,11 +112,18 @@
   {% if autofill_ready and order.status != 'placed' %}
   <div class="row small" id="preview-bar" style="margin-top:10px">
     {% if estimate.priced %}<span id="estimate"><strong>≈ ${{ '%.2f'|format(estimate.total) }}</strong> <span class="muted">for {{ estimate.priced }} of {{ estimate.count }} items priced (one of each)</span></span>{% endif %}
-    <span class="muted" id="preview-line">{% if autofill.state == 'previewing' %}{{ autofill.message or 'Looking up products…' }}{% elif autofill.preview and autofill.preview.error %}{{ autofill.preview.error }}{% endif %}</span>
+    {% set pv = autofill.preview or {} %}
+    <span class="{{ 'muted' if not pv.error or autofill.state == 'previewing' else 'error-text' }}" id="preview-line">
+      {%- if autofill.state == 'previewing' %}{{ autofill.message or 'Looking up products…' }}
+      {%- elif autofill.pending_preview %}Product preview starts as soon as the cart check finishes…
+      {%- elif pv.error %}{{ pv.error }}
+      {%- elif pv.at %}Found products for {{ pv.found }} of {{ pv.looked_up }} item{{ 's' if pv.looked_up != 1 }}.{% endif %}</span>
     <form method="post" action="{{ url_for('preview_order', order_id=order.id) }}" style="margin-left:auto" class="row">
       {% if order['items']|selectattr('options')|list %}<input type="hidden" name="refresh" value="1">{% endif %}
-      <button type="submit" id="preview-btn" {{ 'disabled' if autofill.state in ('previewing', 'syncing') or autofill_active }}>{{ '🔍 Looking up…' if autofill.state == 'previewing' else ('🔍 Refresh products' if order['items']|selectattr('options')|list else '🔍 Preview products') }}</button>
-      {% if autofill.preview and autofill.preview.error %}<button type="submit" name="show" value="1" class="small">Preview with the browser showing</button>{% endif %}
+      {% set busy = autofill.state == 'previewing' or autofill.pending_preview %}
+      <button type="submit" id="preview-btn" {{ 'disabled' if busy or autofill_active }}>{{ '🔍 Looking up…' if busy else ('🔍 Refresh products' if order['items']|selectattr('options')|list else '🔍 Preview products') }}</button>
+      {% if pv.error %}<button type="submit" name="show" value="1" class="small">Preview with the browser showing</button>{% endif %}
+      {% if pv.shot %}<a class="small" href="{{ url_for('autofill_shot', order_id=order.id, name=pv.shot) }}" target="_blank">what I saw</a>{% endif %}
     </form>
   </div>
   {% endif %}
@@ -250,7 +258,8 @@ document.querySelectorAll('.product').forEach(box => {
   const q = (sel) => box.querySelector(sel);
   function show() {
     const o = opts[i];
-    q('img').src = o.image || ''; q('img').style.visibility = o.image ? '' : 'hidden';
+    q('img').onerror = () => { q('img').style.visibility = 'hidden'; };
+    q('img').style.visibility = o.image ? '' : 'hidden'; q('img').src = o.image || '';
     q('.ptitle').textContent = o.title || o.asin; q('.ptitle').href = `https://www.amazon.com/dp/${o.asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
     q('.pprice').textContent = money(o.price);
     q('.punit').textContent = o.unit_price ? `(${o.unit_price})` : '';
@@ -342,6 +351,7 @@ async function poll() {
   }
   const pl = document.getElementById('preview-line');
   if (pl && st.state === 'previewing') pl.textContent = st.message || 'Looking up products…';
+  if (pl && st.state === 'syncing' && st.pending_preview) pl.textContent = 'Product preview starts as soon as the cart check finishes…';
   if (lastState === 'previewing' && st.state !== 'previewing') { location.reload(); return; }
   if (st.state === 'done' && FILL_STATES.includes(lastState)) notify('🛒 Your cart is ready for review', st.message || '');
   const wasFilling = FILL_STATES.includes(lastState);
@@ -377,7 +387,7 @@ const stale = (secs) => !sync || !sync.at || (Date.now() / 1000 - sync.at) > sec
 
 renderSync({{ (autofill.state or '')|tojson }});
 setInterval(() => { if (!polling) renderSync(lastState); }, 30000);
-{% if autofill_active or autofill.state in ('syncing', 'previewing') %}
+{% if autofill_active or autofill.state in ('syncing', 'previewing') or autofill.pending_preview %}
 startPolling();
 {% else %}
 if (canSync && stale(120)) startSync();                 // opening the page checks the cart

@@ -340,7 +340,8 @@ def create_app(db_file: str | None = None) -> Flask:
         order = db.get_order(conn, order_id) or abort(404)
         groups = grocery.group_by_category(order["items"])
         plan = db.get_plan(conn, order["plan_id"]) if order["plan_id"] else None
-        st = autocart.read_status(order_id) or {}
+        _start_pending_preview(order_id)
+        st = _live_status(order_id)
         return render_template("order.html", order=order, groups=groups, plan=plan,
                                text=grocery.as_text(order["items"]), autofill=st,
                                autofill_active=st.get("state") in autocart.ACTIVE_STATES
@@ -382,11 +383,48 @@ def create_app(db_file: str | None = None) -> Flask:
         db.save_order_items(conn, order_id, [i for i in order["items"] if i["key"] != key])
         return redirect(url_for("show_order", order_id=order_id))
 
-    @app.post("/orders/<int:order_id>/autofill")
-    def start_autofill(order_id):
+    def _spawn(order_id: int, flags: list[str], log_suffix: str, **status) -> None:
+        """Start a cart-browser job (fill / sync / preview) for this order in the background."""
         import subprocess
         import sys
 
+        env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
+        log = open(autocart.status_path(order_id).with_suffix(log_suffix), "w")
+        proc = subprocess.Popen([sys.executable, "-m", "recipe_planner.autocart", "--order", str(order_id),
+                                 *flags], env=env, stdout=log, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL)
+        # Record the pid right away, so a job that dies at startup isn't shown as running forever.
+        autocart.write_status(order_id, pid=proc.pid, **status)
+
+    def _live_status(order_id: int) -> dict:
+        """The job status, corrected if the job's process has died without saying so."""
+        st = autocart.read_status(order_id) or {}
+        if st.get("state") in autocart.ACTIVE_STATES and st.get("pid") and not autocart.is_running(order_id):
+            if st["state"] in autocart.BACKGROUND_STATES:
+                prior = st.get("before_preview") or st.get("before_sync")
+                autocart.write_status(order_id, state="done" if prior == "done" else "idle", pid=None,
+                                      message="")
+            else:
+                autocart.write_status(order_id, state="error", pid=None,
+                                      message="The cart filler stopped unexpectedly.")
+            st = autocart.read_status(order_id) or {}
+        return st
+
+    def _start_pending_preview(order_id: int) -> bool:
+        """A preview asked for while the browser was busy: start it once the browser is free."""
+        st = autocart.read_status(order_id) or {}
+        pending = st.get("pending_preview")
+        if not pending or autocart.is_running(order_id):
+            return False
+        flags = ["--preview"] + (["--show"] if pending.get("show") else []) + (
+            ["--refresh"] if pending.get("refresh") else [])
+        before = st.get("state") if st.get("state") not in autocart.ACTIVE_STATES else "idle"
+        _spawn(order_id, flags, ".preview.log", state="previewing", pending_preview=None,
+               before_preview=before, message="Looking up products…")
+        return True
+
+    @app.post("/orders/<int:order_id>/autofill")
+    def start_autofill(order_id):
         conn = get_conn()
         db.get_order(conn, order_id) or abort(404)
         if not autocart.playwright_available():
@@ -394,24 +432,20 @@ def create_app(db_file: str | None = None) -> Flask:
                   ".venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium "
                   "— then restart the app.", "error")
             return redirect(url_for("show_order", order_id=order_id))
-        if not autocart.is_running(order_id):
+        st = autocart.read_status(order_id) or {}
+        if autocart.is_running(order_id) and st.get("state") in autocart.BACKGROUND_STATES:
+            flash("Finishing a background check of your cart first — press Fill my cart again in a few seconds.",
+                  "error")
+        elif not autocart.is_running(order_id):
             autocart.status_path(order_id).unlink(missing_ok=True)
             import shutil
             shutil.rmtree(autocart.debug_dir(order_id), ignore_errors=True)
-            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
-            log = open(autocart.status_path(order_id).with_suffix(".log"), "w")
-            subprocess.Popen([sys.executable, "-m", "recipe_planner.autocart", "--order",
-                              str(order_id), "--no-prompt"], env=env, stdout=log,
-                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            autocart.write_status(order_id, state="starting", message="Opening a browser window…")
+            _spawn(order_id, ["--no-prompt"], ".log", state="starting", message="Opening a browser window…")
         return redirect(url_for("show_order", order_id=order_id))
 
     @app.post("/orders/<int:order_id>/sync")
     def sync_order(order_id):
         """Read the real Amazon/Whole Foods cart (in a background browser) and update ticks."""
-        import subprocess
-        import sys
-
         conn = get_conn()
         db.get_order(conn, order_id) or abort(404)
         if not autocart.playwright_available():
@@ -422,14 +456,9 @@ def create_app(db_file: str | None = None) -> Flask:
             return redirect(url_for("show_order", order_id=order_id))
         started = False
         if not autocart.is_running(order_id):
-            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
-            args = [sys.executable, "-m", "recipe_planner.autocart", "--sync", "--order", str(order_id)]
-            if request.args.get("show") or request.form.get("show"):
-                args.append("--show")
-            log = open(autocart.status_path(order_id).with_suffix(".sync.log"), "w")
-            subprocess.Popen(args, env=env, stdout=log, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL)
-            autocart.write_status(order_id, state="syncing", message="Checking your Amazon cart…")
+            show = request.args.get("show") or request.form.get("show")
+            _spawn(order_id, ["--sync"] + (["--show"] if show else []), ".sync.log",
+                   state="syncing", message="Checking your Amazon cart…")
             started = True
         if request.is_json:
             return jsonify(started=started)
@@ -438,26 +467,19 @@ def create_app(db_file: str | None = None) -> Flask:
     @app.post("/orders/<int:order_id>/preview")
     def preview_order(order_id):
         """Look up product photos and prices for each item (background browser)."""
-        import subprocess
-        import sys
-
         conn = get_conn()
         db.get_order(conn, order_id) or abort(404)
         if not autocart.playwright_available():
             flash("Product previews need Playwright (same one-time setup as Fill my cart).", "error")
             return redirect(url_for("show_order", order_id=order_id))
-        if not autocart.is_running(order_id):
-            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
-            args = [sys.executable, "-m", "recipe_planner.autocart", "--preview", "--order", str(order_id)]
-            if request.form.get("show"):
-                args.append("--show")
-            if request.form.get("refresh"):
-                args.append("--refresh")
-            log = open(autocart.status_path(order_id).with_suffix(".preview.log"), "w")
-            subprocess.Popen(args, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            autocart.write_status(order_id, state="previewing", message="Looking up products…")
-        else:
-            flash("The browser is busy with this order right now; try again in a moment.", "error")
+        st = autocart.read_status(order_id) or {}
+        pending = {"show": bool(request.form.get("show")), "refresh": bool(request.form.get("refresh"))}
+        if autocart.is_running(order_id) and st.get("state") not in autocart.BACKGROUND_STATES:
+            flash("The cart filler is using the browser right now. Preview products after it's done.", "error")
+        elif not (autocart.is_running(order_id) and st.get("state") == "previewing"):
+            # Queue it; if the browser is free it starts now, otherwise right after the cart check.
+            autocart.write_status(order_id, pending_preview=pending)
+            _start_pending_preview(order_id)
         return redirect(url_for("show_order", order_id=order_id))
 
     @app.post("/orders/<int:order_id>/items/<path:key>/choose")
@@ -499,10 +521,9 @@ def create_app(db_file: str | None = None) -> Flask:
     def autofill_status(order_id):
         conn = get_conn()
         order = db.get_order(conn, order_id) or abort(404)
-        st = autocart.read_status(order_id) or {}
+        _start_pending_preview(order_id)  # queued behind a job that has since ended
+        st = _live_status(order_id)
         active = st.get("state") in autocart.ACTIVE_STATES
-        if active and st.get("pid") and not autocart.is_running(order_id):
-            st, active = dict(st, state="error", message="The cart filler stopped unexpectedly."), False
         return jsonify(status=st, active=active,
                        added=[i["key"] for i in order["items"] if i.get("added")],
                        picks={i["key"]: i.get("pick_label", "") for i in order["items"] if i.get("has_pick")})
