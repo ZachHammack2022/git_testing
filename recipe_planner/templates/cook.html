@@ -3,7 +3,20 @@
 {% block title %}Cook · {{ r.title }}{% endblock %}
 {% block content %}
 <a class="back small" href="{{ url_for('show_plan', plan_id=plan.id) }}">Back to {{ m.day }}, week of {{ plan.week_start|pretty_date }}</a>
-{{ tile(r, None, banner=True, meta=r.prep_minutes ~ ' min, serves ' ~ m.servings ~ (' + ' ~ m.leftovers ~ ' for leftovers' if m.leftovers else '') ~ (', scaled from ' ~ r.servings if scaled else '')) }}
+{{ tile(r, None, banner=True, meta=r.prep_minutes ~ ' min, cooking for ' ~ total ~ (' (' ~ m.leftovers ~ ' for leftovers)' if m.leftovers and not adjusted else '') ~ (', scaled from ' ~ r.servings if scaled else '')) }}
+
+<div class="cooktools" role="toolbar" aria-label="Cooking tools">
+  <span class="scaler" aria-label="Servings">
+    <a class="btn" href="?servings={{ total - 1 }}" aria-label="Fewer servings" {{ 'hidden' if total <= 1 }}>−</a>
+    <b>{{ total }} serving{{ 's' if total != 1 }}</b>
+    <a class="btn" href="?servings={{ total + 1 }}" aria-label="More servings">+</a>
+    {% if adjusted %}<a class="small" href="{{ url_for('cook', meal_id=m.id) }}">Reset</a>{% endif %}
+  </span>
+  <button type="button" id="focus-btn" aria-pressed="false">One step at a time</button>
+  <button type="button" id="big-btn" aria-pressed="false">Big text</button>
+  <button type="button" id="voice-btn" aria-pressed="false" hidden>Voice control</button>
+</div>
+<p class="small muted" id="voice-help" hidden style="margin:-4px 0 12px">Listening. Say "next", "back", "repeat", "start timer" or "stop".</p>
 {% if past_notes %}
 <div class="card" style="border-color: var(--squash); border-width: 3px; margin-top: 16px">
   <h3>Your notes from last time</h3>
@@ -23,11 +36,21 @@
   </div>
   <div>
     <h2 style="margin-top:0">Steps</h2>
-    <ol class="big cookstep">
-      {% for s in r.steps %}
-      <li><label><input type="checkbox"> <span class="name">{{ s }}</span></label></li>
+    <ol class="big cookstep" id="steps">
+      {% for st in steps %}{% set n = loop.index %}
+      <li data-n="{{ n }}">
+        <label><input type="checkbox"> <span class="name">{{ st.text }}</span></label>
+        {% if st.timers %}<div class="steptimers">{% for t in st.timers %}
+          <button type="button" class="timerbtn" data-seconds="{{ t.seconds }}" data-label="Step {{ n }}: {{ t.label }}">Start {{ t.label }} timer</button>
+        {% endfor %}</div>{% endif %}
+      </li>
       {% endfor %}
     </ol>
+    <div class="stepnav" id="stepnav" hidden>
+      <button type="button" id="prev-btn">Back</button>
+      <span id="stepcount" class="muted"></span>
+      <button type="button" id="next-btn" class="primary">Next step</button>
+    </div>
   </div>
 </div>
 
@@ -47,12 +70,149 @@
   <input type="text" name="notes" value="{{ m.fb_notes or '' }}" placeholder="Notes for next time" style="width:100%; margin-top:8px">
   <p><button class="primary" type="submit">Save rating</button></p>
 </form>
+<div class="timers" id="timers" aria-live="polite"></div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-  document.querySelectorAll('.cook input[type=checkbox]').forEach(cb =>
+(() => {
+  const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+  const store = (k, v) => { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} };
+  const load = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+
+  // Tick things off.
+  $$('.cook input[type=checkbox]').forEach(cb =>
     cb.addEventListener('change', () => cb.closest('li').classList.toggle('done', cb.checked)));
   // Keep the screen awake while cooking, where supported.
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
+  const keepAwake = () => { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {}); };
+  keepAwake();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+
+  // ---------- big text ----------
+  const bigBtn = $('#big-btn');
+  const setBig = on => { document.body.classList.toggle('bigtext', on); bigBtn.setAttribute('aria-pressed', on); store('cook-big', on ? '1' : undefined); };
+  bigBtn.addEventListener('click', () => setBig(!document.body.classList.contains('bigtext')));
+  setBig(load('cook-big') === '1');
+
+  // ---------- one step at a time ----------
+  const steps = $$('#steps > li'), nav = $('#stepnav'), focusBtn = $('#focus-btn');
+  let cur = 0, focus = false;
+  const firstOpen = () => { const i = steps.findIndex(li => !li.querySelector('input').checked); return i < 0 ? steps.length - 1 : i; };
+  function show() {
+    steps.forEach((li, i) => li.classList.toggle('cur', i === cur));
+    $('#stepcount').textContent = `Step ${cur + 1} of ${steps.length}`;
+    $('#prev-btn').disabled = cur === 0;
+    $('#next-btn').textContent = cur === steps.length - 1 ? 'Done cooking' : 'Next step';
+  }
+  function setFocus(on) {
+    focus = on; $('#steps').classList.toggle('focus', on); nav.hidden = !on;
+    focusBtn.setAttribute('aria-pressed', on); store('cook-focus', on ? '1' : undefined);
+    if (on) { cur = firstOpen(); show(); }
+  }
+  function next() {
+    steps[cur].querySelector('input').checked = true; steps[cur].classList.add('done');
+    if (cur < steps.length - 1) { cur++; show(); }
+    else { setFocus(false); document.querySelector('form.card').scrollIntoView({behavior: 'smooth'}); }
+  }
+  function prev() {
+    if (cur > 0) { cur--; steps[cur].querySelector('input').checked = false; steps[cur].classList.remove('done'); show(); }
+  }
+  focusBtn.addEventListener('click', () => setFocus(!focus));
+  $('#next-btn').addEventListener('click', next);
+  $('#prev-btn').addEventListener('click', prev);
+  let x0 = null;
+  $('#steps').addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive: true});
+  $('#steps').addEventListener('touchend', e => {
+    if (!focus || x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (dx < -60) next(); else if (dx > 60) prev();
+  });
+  document.addEventListener('keydown', e => {
+    if (!focus || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    if (e.key === 'ArrowRight') next(); else if (e.key === 'ArrowLeft') prev();
+  });
+  if (load('cook-focus') === '1') setFocus(true);
+
+  // ---------- timers ----------
+  const tray = $('#timers'), KEY = 'cook-timers-{{ m.id }}';
+  let timers = [], audio = null, ringing = null;
+  try { timers = JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (e) {}
+  const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify(timers)); } catch (e) {} };
+  const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0'); };
+  function beep() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      [0, .3, .6].forEach(t => { const o = audio.createOscillator(), g = audio.createGain();
+        o.frequency.value = 880; g.gain.value = .25; o.connect(g); g.connect(audio.destination);
+        o.start(audio.currentTime + t); o.stop(audio.currentTime + t + .2); });
+    } catch (e) {}
+    if (navigator.vibrate) navigator.vibrate([300, 150, 300]);
+  }
+  // One element per timer, created once and updated in place, so taps never land on a rebuilt button.
+  const els = new Map();
+  function build(t) {
+    const el = document.createElement('div'); el.className = 'timer';
+    el.innerHTML = '<span><b></b><small></small></span>';
+    el.querySelector('small').textContent = t.label;
+    const add = document.createElement('button'); add.type = 'button'; add.textContent = '+1 min';
+    add.onclick = () => { t.end = Math.max(t.end, Date.now()) + 60000; t.rang = false; save(); render(); };
+    const stop = document.createElement('button'); stop.type = 'button'; stop.className = 'stop';
+    stop.onclick = () => { timers = timers.filter(x => x !== t); save(); render(); };
+    el.append(add, stop); tray.append(el); els.set(t, el);
+    return el;
+  }
+  function render() {
+    const now = Date.now();
+    for (const [t, el] of els) if (!timers.includes(t)) { el.remove(); els.delete(t); }
+    timers.forEach(t => {
+      const el = els.get(t) || build(t), left = (t.end - now) / 1000, done = left <= 0;
+      el.classList.toggle('ring', done);
+      el.querySelector('b').textContent = done ? "Time's up" : fmt(left);
+      el.querySelector('.stop').textContent = done ? 'Dismiss' : 'Cancel';
+    });
+  }
+  function tick() {
+    const now = Date.now();
+    timers.forEach(t => { if (t.end <= now && !t.rang) { t.rang = true; save(); beep();
+      if (!ringing) ringing = setInterval(() => { if (timers.some(x => x.end <= Date.now())) beep(); else { clearInterval(ringing); ringing = null; } }, 6000); } });
+    render();
+  }
+  function startTimer(seconds, label) {
+    timers.push({end: Date.now() + seconds * 1000, label, rang: false}); save();
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}  // needs a tap to unlock sound
+    tick();
+  }
+  $$('.timerbtn').forEach(b => b.addEventListener('click', () => startTimer(+b.dataset.seconds, b.dataset.label)));
+  setInterval(tick, 1000); tick();
+
+  // ---------- voice ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, voiceBtn = $('#voice-btn');
+  if (SR) {
+    voiceBtn.hidden = false;
+    let rec = null, on = false;
+    const speak = t => { if ('speechSynthesis' in window) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); } };
+    function handle(said) {
+      said = said.toLowerCase();
+      if (/\b(next|continue|done)\b/.test(said)) next();
+      else if (/\b(back|previous|go back)\b/.test(said)) prev();
+      else if (/\b(repeat|again|read)\b/.test(said)) speak(steps[cur].querySelector('.name').textContent);
+      else if (/\bstart\b.*\btimer\b/.test(said)) { const b = steps[cur].querySelector('.timerbtn'); if (b) b.click(); }
+      else if (/\b(stop|quiet|silence)\b/.test(said)) { timers = timers.filter(t => t.end > Date.now()); save(); render(); }
+    }
+    function setVoice(v) {
+      on = v; voiceBtn.setAttribute('aria-pressed', v); $('#voice-help').hidden = !v;
+      if (v) {
+        if (!focus) setFocus(true);
+        rec = new SR(); rec.continuous = true; rec.interimResults = false; rec.lang = 'en-US';
+        rec.onresult = e => handle(e.results[e.results.length - 1][0].transcript);
+        rec.onend = () => { if (on) { try { rec.start(); } catch (e) {} } };
+        rec.onerror = e => { if (e.error === 'not-allowed') setVoice(false); };
+        try { rec.start(); } catch (e) {}
+      } else if (rec) { rec.onend = null; rec.stop(); }
+    }
+    voiceBtn.addEventListener('click', () => setVoice(!on));
+  }
+})();
 </script>
 {% endblock %}

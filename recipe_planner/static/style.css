@@ -267,3 +267,36 @@ ol.cookstep li:has(input:checked) .name { text-decoration: line-through; }
 .cook .ingredients li.done .name { text-decoration: line-through; color: var(--muted); }
 .tile.add .name a { color: var(--ink); }
 input[type=range] { width: 100%; max-width: 420px; }
+
+/* ---------- cook mode ---------- */
+.cooktools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 16px 0 4px; }
+.cooktools [aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.scaler { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; }
+.scaler .btn { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; font-size: 1.3rem; }
+.timerbtn { margin-top: 8px; border: 2px solid var(--squash); background: #fff5dd; color: #13261d; font-weight: 700; }
+.steptimers { grid-column: 2; }
+ol.cookstep li > label, ol.cookstep li > .steptimers { grid-column: 2; }
+ol.cookstep.focus li:not(.cur) { display: none; }
+ol.cookstep.focus li.cur { grid-template-columns: 1fr; padding: 22px; background: var(--card); border: 2px solid var(--ink); border-radius: var(--radius); }
+ol.cookstep.focus li.cur::before { font-size: 3.2rem; }
+ol.cookstep.focus li.cur > label, ol.cookstep.focus li.cur > .steptimers { grid-column: 1; }
+ol.cookstep.focus .name { font-size: 1.5rem; line-height: 1.45; }
+.stepnav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.stepnav button { padding: 14px 26px; font-size: 1.1rem; font-weight: 700; }
+.stepnav button:disabled { opacity: .4; }
+body.bigtext ol.cookstep .name, body.bigtext .cook .ingredients li { font-size: 1.5rem; line-height: 1.5; }
+body.bigtext .cook .ingredients { padding: 24px; }
+body.bigtext ol.cookstep.focus .name { font-size: 2.1rem; }
+.timers { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; pointer-events: none; }
+.timer { pointer-events: auto; display: flex; align-items: center; gap: 12px; background: var(--ink); color: #fff; border-radius: 18px; padding: 10px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.timer b { display: block; font: 800 1.6rem/1 var(--display); font-variant-numeric: tabular-nums; }
+.timer small { opacity: .8; }
+.timer button { padding: 6px 12px; font-size: .85rem; }
+.timer.ring { background: var(--squash); color: #13261d; animation: ring 0.9s ease-in-out infinite; }
+@keyframes ring { 50% { box-shadow: 0 0 0 10px rgba(244, 169, 59, .45); } }
+@media (prefers-reduced-motion: reduce) { .timer.ring { animation: none; } }
+@media (max-width: 760px) { .timers { bottom: 84px; } }
+@media print { .cooktools, .timers, .stepnav { display: none !important; } }
+ol.big li[data-n]::before { content: attr(data-n); }
+ol.cookstep.focus li.cur:has(input:checked) { opacity: 1; }
+ol.cookstep.focus li.cur:has(input:checked) .name { text-decoration: none; }

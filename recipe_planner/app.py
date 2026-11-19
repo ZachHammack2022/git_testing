@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, send_from_directory, url_for)
 
-from . import ai, autocart, db, grocery, importer, ordering, planner, prep
+from . import ai, autocart, cookmode, db, grocery, importer, ordering, planner, prep
 
 
 def create_app(db_file: str | None = None) -> Flask:
@@ -570,12 +570,18 @@ def create_app(db_file: str | None = None) -> Flask:
         plan = db.get_plan(conn, meal["plan_id"])
         m = next(x for x in plan["meals"] if x["id"] == meal_id)
         r = m["recipe"]
-        scale = m["total_servings"] / max(int(r["servings"] or 1), 1)
+        total = m["total_servings"]
+        override = request.args.get("servings", type=int)
+        if override:  # the serving scaler on the cook page: changes this view only
+            total = max(1, min(40, override))
+        scale = total / max(int(r["servings"] or 1), 1)
         ingredients = [dict(i, quantity=grocery.parse_quantity(i.get("quantity")) * scale)
                        for i in r["ingredients"]]
         past_notes = [f for f in db.recipe_feedback(conn, r["id"])
                       if f["notes"] and f["plan_meal_id"] != meal_id][:5]
-        return render_template("cook.html", m=m, r=r, plan=plan, ingredients=ingredients,
+        steps = [{"text": t, "timers": cookmode.find_timers(t)} for t in r["steps"]]
+        return render_template("cook.html", m=m, r=r, plan=plan, ingredients=ingredients, steps=steps,
+                               total=total, adjusted=total != m["total_servings"],
                                scaled=abs(scale - 1) > 0.01, past_notes=past_notes)
 
     # ---------------- feedback ----------------
