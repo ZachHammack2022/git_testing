@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+{% if plan %}
+  <div class="spread">
+    <div>
+      <h1>Week of {{ plan.week_start|pretty_date }}</h1>
+      {% if plan.notes %}<p class="muted">{{ plan.notes }}</p>{% endif %}
+    </div>
+    <a class="btn" href="{{ url_for('show_plan', plan_id=plan.id) }}">Edit plan</a>
+  </div>
+
+  {% if tonight %}
+  <div class="card spread" style="border-color: var(--accent)">
+    <div>
+      <div class="day">Tonight</div>
+      <h3 style="margin:0">{{ tonight.recipe.title }}</h3>
+      <div class="muted small">{{ tonight.recipe.prep_minutes }} min · serves {{ tonight.servings }}</div>
+    </div>
+    <a class="btn primary" href="{{ url_for('cook', meal_id=tonight.id) }}">Start cooking</a>
+  </div>
+  {% endif %}
+
+  <div class="grid">
+    <div class="card">
+      <h3>1 · Plan</h3>
+      <p class="muted small">{{ plan.meals|length }} dinners planned.</p>
+      <a href="{{ url_for('show_plan', plan_id=plan.id) }}">Review &amp; swap meals →</a>
+    </div>
+    <div class="card">
+      <h3>2 · Order</h3>
+      {% if order %}
+        <p class="muted small">
+          {% if order.status == 'placed' %}Order placed ✓{% else %}{{ order['items']|selectattr('added')|list|length }} / {{ order['items']|length }} items in cart{% endif %}
+        </p>
+        <a href="{{ url_for('show_order', order_id=order.id) }}">{{ 'View order' if order.status == 'placed' else 'Continue ordering' }} →</a>
+      {% else %}
+        <p class="muted small">Build your Whole Foods cart from one list.</p>
+        <a href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list →</a>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3>3 · Rate</h3>
+      {% if needs_feedback %}
+        <p class="muted small">{{ needs_feedback|length }} meal(s) waiting for a rating.</p>
+      {% else %}
+        <p class="muted small">All meals rated — thanks!</p>
+      {% endif %}
+      <a href="{{ url_for('feedback', plan_id=plan.id) }}">Give feedback →</a>
+    </div>
+  </div>
+
+  <h2>Dinners</h2>
+  <div class="grid">
+    {% for m in plan.meals %}
+      <div class="card meal">
+        <div class="day">{{ m.day }}</div>
+        <h3><a href="{{ url_for('cook', meal_id=m.id) }}">{{ m.recipe.title }}</a></h3>
+        <div class="muted small">{{ m.recipe.prep_minutes }} min · serves {{ m.servings }}{% if m.leftovers %} · 🥡 leftovers{% endif %}
+          {% if m.fb_rating %} · {{ '★' * m.fb_rating }}{% else %} · <a href="{{ url_for('cook', meal_id=m.id) }}">cook &amp; rate</a>{% endif %}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <h2>Next week</h2>
+  {% include "_new_plan_form.html" %}
+{% else %}
+  <h1>Welcome 👋</h1>
+  <p>Three steps each week: <strong>plan</strong> dinners, <strong>order</strong> groceries from Whole Foods, and <strong>rate</strong> what you cooked so next week gets better.</p>
+  <p class="muted">Tip: check <a href="{{ url_for('settings') }}">Settings</a> first to set household size, cook days and dislikes.</p>
+  {% include "_new_plan_form.html" %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Shopping list{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>Shopping list</h1>
+    <p class="muted small">Week of {{ plan.week_start|pretty_date }} · {{ plan.meals|length }} dinners · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">back to plan</a></p>
+  </div>
+  {% if order %}<a class="btn" href="{{ url_for('show_order', order_id=order.id) }}">Open existing order →</a>{% endif %}
+</div>
+
+<form method="post" action="{{ url_for('start_order', plan_id=plan.id) }}">
+  <p class="muted small">Uncheck anything you don't need to buy. Pantry staples (<a href="{{ url_for('settings') }}">Settings</a>) and food you have in your <a href="{{ url_for('kitchen') }}">Kitchen</a> start unchecked.</p>
+  {% for cat, items in groups %}
+  <div class="card">
+    <h3 style="text-transform:capitalize">{{ cat }}</h3>
+    <ul class="items">
+      {% for it in items %}
+      <li>
+        <input type="checkbox" class="buy" data-key="{{ it.key }}" {{ '' if it.in_pantry else 'checked' }} aria-label="Buy {{ it.name }}">
+        <div style="flex:1">
+          <span class="name">{{ it.name }}</span>{% if it.amount %} <span class="muted">— {{ it.amount }}</span>{% endif %}
+          <div class="muted small">{{ it.recipes|join(', ') }}</div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% if always_buy %}
+  <div class="card">
+    <h3>Always buy</h3>
+    <p class="small">{{ always_buy|join(' · ') }}</p>
+    <label class="inline small"><input type="hidden" name="include_always" value="off"><input type="checkbox" name="include_always" value="on" checked> Add these to the order</label>
+    <a class="small" href="{{ url_for('settings') }}">edit</a>
+  </div>
+  {% endif %}
+  <p><label class="inline small"><input type="checkbox" name="remember_pantry"> Remember unchecked items as pantry staples (skip them in future lists)</label></p>
+  <input type="hidden" name="buy" value="">
+  <div id="hidden-fields"></div>
+  <button class="primary" type="submit">Order from Whole Foods →</button>
+</form>
+
+<details style="margin-top:16px">
+  <summary>Plain-text list (copy into notes, Alexa, etc.)</summary>
+  <pre class="list" id="plain">{{ text }}</pre>
+  <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('plain').innerText).then(()=>this.textContent='Copied ✓')">Copy</button>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Send the checked items; everything else is left off the order.
+  document.querySelector('form[action$="/order"]').addEventListener('submit', () => {
+    const box = document.getElementById('hidden-fields');
+    box.innerHTML = '';
+    document.querySelectorAll('input.buy:checked').forEach(cb => {
+      const i = document.createElement('input');
+      i.type = 'hidden';
+      i.name = 'buy';
+      i.value = cb.dataset.key;
+      box.appendChild(i);
+    });
+  });
+</script>
+{% endblock %}

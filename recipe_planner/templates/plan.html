@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Plan · {{ plan.week_start|pretty_date }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>Week of {{ plan.week_start|pretty_date }}</h1>
+    <p class="muted small">Planned by {{ 'Claude' if plan.planner == 'claude' else 'your ratings' }}{% if plan.notes %} · {{ plan.notes }}{% endif %}</p>
+  </div>
+  <div class="row">
+    <a class="btn primary" href="{{ url_for('shopping', plan_id=plan.id) }}">Shopping list →</a>
+    <a class="btn" href="{{ url_for('prep_page', plan_id=plan.id) }}">🔪 Prep plan</a>
+    <a class="btn" href="{{ url_for('feedback', plan_id=plan.id) }}">Rate meals</a>
+  </div>
+</div>
+
+<details class="card" style="margin-top:14px">
+  <summary>Re-plan this week — keeps meals you've locked 🔒</summary>
+  <form method="post" action="{{ url_for('regenerate_plan', plan_id=plan.id) }}" class="row">
+    <input type="text" name="use_up" placeholder="Use up: spinach, feta…" style="flex:1; min-width:160px">
+    {% if ai_available %}
+    <input type="text" name="request" placeholder="Optional: what should change?" style="flex:1; min-width:200px">
+    <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
+    {% endif %}
+    <button type="submit" onclick="this.textContent='Re-planning…'">Re-plan unlocked meals</button>
+  </form>
+</details>
+
+{% for m in plan.meals %}
+<div class="card meal" id="meal-{{ m.id }}">
+  <div class="spread">
+    <div>
+      <div class="day">{{ m.day }}</div>
+      <h3><a href="{{ url_for('recipe', recipe_id=m.recipe.id) }}">{{ m.recipe.title }}</a></h3>
+      <div class="muted small">{{ m.recipe.cuisine }} · {{ m.recipe.protein }} · {{ m.recipe.prep_minutes }} min
+        {% if m.recipe.source == 'ai' %}<span class="pill">new from Claude</span>{% endif %}
+        {% if m.fb_rating %}<span class="pill">{{ '★' * m.fb_rating }}</span>{% endif %}</div>
+      {% if m.recipe.description %}<p class="small">{{ m.recipe.description }}</p>{% endif %}
+    </div>
+    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row">
+      <button type="submit" formaction="{{ url_for('lock_meal', meal_id=m.id) }}" title="{{ 'Unlock' if m.locked else 'Lock: keep when re-planning' }}" aria-label="{{ 'Unlock' if m.locked else 'Lock' }}">{{ '🔒' if m.locked else '🔓' }}</button>
+      <button type="submit" formaction="{{ url_for('toggle_leftovers', meal_id=m.id) }}" title="Cook extra for lunch the next day" class="{{ 'primary' if m.leftovers }}">🥡{{ ' +' ~ m.leftovers if m.leftovers }}</button>
+      <a class="btn" href="{{ url_for('cook', meal_id=m.id) }}">Cook</a>
+      <label class="inline small">Serves <input type="number" name="servings" value="{{ m.servings }}" min="1" max="20" style="width:64px" onchange="this.form.submit()"></label>
+    </form>
+  </div>
+  <details>
+    <summary>Swap or change</summary>
+    <form method="post" action="{{ url_for('swap_meal', meal_id=m.id) }}" class="row">
+      {% if ai_available %}
+      <input type="text" name="request" placeholder="Optional: what do you feel like? e.g. something lighter" style="flex:1; min-width:200px">
+      <label class="inline small"><input type="checkbox" name="use_ai" checked> Claude</label>
+      <button type="submit" onclick="this.textContent='Swapping…'">Swap</button>
+      {% else %}
+      <button type="submit">Swap for another recipe</button>
+      {% endif %}
+    </form>
+    <form method="post" action="{{ url_for('update_meal', meal_id=m.id) }}" class="row" style="margin-top:8px">
+      <select name="recipe_id" style="flex:1; min-width:200px">
+        {% for r in recipes %}<option value="{{ r.id }}" {{ 'selected' if r.id == m.recipe_id }}>{{ r.title }}</option>{% endfor %}
+      </select>
+      <select name="day">{% for d in DAYS %}<option {{ 'selected' if d == m.day }}>{{ d }}</option>{% endfor %}</select>
+      <button type="submit">Update</button>
+    </form>
+    <form method="post" action="{{ url_for('delete_meal', meal_id=m.id) }}" style="margin-top:8px">
+      <button class="danger" type="submit">Remove this dinner</button>
+    </form>
+  </details>
+</div>
+{% else %}
+<p class="muted">No dinners in this plan yet.</p>
+{% endfor %}
+
+<div class="card">
+  <h3>Add a dinner</h3>
+  <form method="post" action="{{ url_for('add_meal', plan_id=plan.id) }}" class="row">
+    <select name="day">{% for d in (free_days or DAYS) %}<option>{{ d }}</option>{% endfor %}</select>
+    <select name="recipe_id" style="flex:1; min-width:200px">
+      <option value="">Choose a recipe…</option>
+      {% for r in recipes %}<option value="{{ r.id }}">{{ r.title }}</option>{% endfor %}
+    </select>
+    <button type="submit">Add</button>
+  </form>
+</div>
+
+<div class="row">
+  <a class="btn small" href="{{ url_for('plan_ics', plan_id=plan.id) }}">Add to calendar (.ics)</a>
+  <form method="post" action="{{ url_for('repeat_plan', plan_id=plan.id) }}"><button class="small" type="submit">Plan this week again</button></form>
+  <form method="post" action="{{ url_for('delete_plan', plan_id=plan.id) }}" onsubmit="return confirm('Delete this plan?')">
+    <button class="danger small" type="submit">Delete plan</button>
+  </form>
+</div>
+{% endblock %}

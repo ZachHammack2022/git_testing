@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post">
+  <div class="card">
+    <h3>Household</h3>
+    <div class="row">
+      <div><label for="hs">People per meal</label><input type="number" id="hs" name="household_size" min="1" value="{{ s.household_size }}" style="width:80px"></div>
+      <div><label for="mp">Max cook time (min)</label><input type="number" id="mp" name="max_prep_minutes" min="10" step="5" value="{{ s.max_prep_minutes }}" style="width:90px"></div>
+    </div>
+    <label>Cook dinner on <span class="muted small">— optional theme per day, e.g. "tacos", "quick", "meatless", "fish", "pizza"</span></label>
+    <table class="small">
+      {% for d in DAYS %}
+      <tr><td style="width:90px"><label class="inline"><input type="checkbox" name="day-{{ d }}" {{ 'checked' if d in s.cook_days }}> {{ d }}</label></td>
+        <td><input type="text" name="theme-{{ d }}" value="{{ (s.day_themes or {}).get(d, '') }}" placeholder="any" style="width:100%"></td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card">
+    <h3>Tastes</h3>
+    <label for="di">Dietary rules</label>
+    <input type="text" id="di" name="dietary" value="{{ s.dietary }}" placeholder="e.g. no pork, dairy-free" style="width:100%">
+    <label for="dl">Never use these ingredients <span class="muted small">(comma separated)</span></label>
+    <input type="text" id="dl" name="dislikes" value="{{ s.dislikes }}" placeholder="e.g. cilantro, olives, mushrooms" style="width:100%">
+    <label for="fc">Favorite cuisines <span class="muted small">(comma separated)</span></label>
+    <input type="text" id="fc" name="favorite_cuisines" value="{{ s.favorite_cuisines }}" placeholder="e.g. Mexican, Thai, Italian" style="width:100%">
+    <label for="nt">Standing notes for the planner</label>
+    <textarea id="nt" name="notes" placeholder="e.g. Quick meals on weeknights, something special on Sunday">{{ s.notes }}</textarea>
+  </div>
+  <div class="card">
+    <h3>Planner</h3>
+    {% if ai_available %}
+      <label class="inline"><input type="checkbox" name="use_ai" {{ 'checked' if s.use_ai }}> Use Claude to plan (falls back to the built-in planner on errors)</label>
+    {% else %}
+      <p class="muted small">Claude isn't configured. Set <code>ANTHROPIC_API_KEY</code> before starting the app to get fresh recipe ideas. The built-in planner uses your library and ratings.</p>
+      <input type="hidden" name="use_ai" value="{{ 'on' if s.use_ai else '' }}">
+    {% endif %}
+    <label for="nr">New recipes per week with Claude: <span id="nrv">{{ (s.new_recipe_ratio * 100)|round|int }}</span>%</label>
+    <input type="range" id="nr" name="new_recipe_pct" min="0" max="100" step="10" value="{{ (s.new_recipe_ratio * 100)|round|int }}" oninput="document.getElementById('nrv').textContent=this.value">
+  </div>
+  <div class="card">
+    <h3>Pantry staples</h3>
+    <p class="muted small">Things you always have. They're left off orders by default.</p>
+    <textarea name="pantry">{{ pantry|join(', ') }}</textarea>
+  </div>
+  <div class="card">
+    <h3>Always buy</h3>
+    <p class="muted small">Groceries you get every week regardless of recipes — one per line, e.g. "1 gallon whole milk", "2 lb bananas", "coffee beans". Added to each new order.</p>
+    <textarea name="always_buy" rows="5">{{ s.always_buy }}</textarea>
+  </div>
+  <button class="primary" type="submit">Save settings</button>
+</form>
+
+<div class="card" id="picks" style="margin-top:20px">
+  <h3>Saved products</h3>
+  {% if picks %}
+  <table>
+    {% for key, p in picks|dictsort %}
+    <tr><td>{{ key }}</td><td class="small"><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.label or 'product link' }}</a></td>
+      <td><form method="post" action="{{ url_for('delete_pick') }}"><input type="hidden" name="key" value="{{ key }}"><button class="link small" type="submit">remove</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted small">None yet. While ordering, save the exact product you like for an ingredient and future orders will link straight to it.</p>
+  {% endif %}
+</div>
+<div class="card">
+  <h3>Backup</h3>
+  <p class="muted small">Everything lives in one SQLite file. Download a copy now and then.</p>
+  <a class="btn" href="{{ url_for('backup') }}">Download backup</a>
+</div>
+{% endblock %}

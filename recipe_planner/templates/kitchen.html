@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Kitchen{% endblock %}
+{% block content %}
+<h1>Kitchen</h1>
+<p class="muted">What you have right now. The next plan tries to use it up, and shopping lists leave it unchecked.</p>
+
+{% if found %}
+<form method="post" action="{{ url_for('confirm_kitchen') }}" class="card" style="border-color: var(--accent)">
+  <h3 style="margin-top:0">I spotted {{ found|length }} thing{{ 's' if found|length != 1 }}</h3>
+  <p class="muted small">Fix any names, and choose where each goes. <strong>Use up soon</strong> is fresh food (kept for {{ keep_days }} days). <strong>Pantry staple</strong> is something you always keep stocked.</p>
+  <table class="small">
+    {% for it in found %}
+    <tr>
+      <td style="width:55%"><input type="text" name="name" value="{{ it.name }}" style="width:100%" aria-label="Item name"></td>
+      <td>
+        <select name="where-{{ loop.index0 }}" aria-label="Where {{ it.name }} goes">
+          <option value="fresh" {{ 'selected' if it.kind == 'fresh' and not it.known_staple }}>Use up soon</option>
+          <option value="staple" {{ 'selected' if it.kind == 'staple' and not it.known_staple }}>Pantry staple</option>
+          <option value="skip" {{ 'selected' if it.known_staple }}>Skip{{ ' (already a staple)' if it.known_staple }}</option>
+        </select>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p><button class="primary" type="submit">Save these</button> <a class="btn" href="{{ url_for('kitchen') }}">Discard</a></p>
+</form>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">📷 Snap your fridge or a receipt</h3>
+  {% if ai_available %}
+  <p class="muted small">Take a photo of the fridge, a pantry shelf or a grocery receipt (up to 5 at once). Claude lists what it sees and you confirm before anything is saved.</p>
+  <form method="post" action="{{ url_for('scan_kitchen') }}" enctype="multipart/form-data" id="scan-form" class="row">
+    <input type="file" name="photos" id="photos" accept="image/*" multiple required>
+    <button class="primary" type="submit" id="scan-btn">Read photo</button>
+  </form>
+  {% else %}
+  <p class="muted small">Reading photos needs Claude. Set <code>ANTHROPIC_API_KEY</code> before starting the app. You can still type what you have below.</p>
+  {% endif %}
+</div>
+
+<form method="post" action="{{ url_for('save_kitchen') }}" class="card">
+  <h3 style="margin-top:0">Use up soon</h3>
+  <p class="muted small">Fresh food you have now, comma or line separated. Each item drops off after {{ keep_days }} days.</p>
+  <textarea name="on_hand" rows="4" placeholder="e.g. spinach, half a cabbage, feta, 2 chicken thighs">{{ on_hand|map(attribute='name')|join(', ') }}</textarea>
+  {% if on_hand %}
+  <p class="muted small" style="margin:4px 0 0">{% for i in on_hand %}{{ i.name }} <span title="added">({{ i.added|pretty_date }})</span>{{ ' · ' if not loop.last }}{% endfor %}</p>
+  {% endif %}
+  <p><button type="submit">Save</button></p>
+</form>
+
+<div class="card">
+  <h3 style="margin-top:0">Pantry staples</h3>
+  <p class="small">{{ pantry|join(', ') or 'None yet.' }}</p>
+  <a class="small" href="{{ url_for('settings') }}">Edit in Settings</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Shrink phone photos before upload: faster, and under Claude's per-image size limit.
+const form = document.getElementById('scan-form');
+if (form) form.addEventListener('submit', async (ev) => {
+  const input = document.getElementById('photos');
+  const btn = document.getElementById('scan-btn');
+  if (!input.files.length || !window.DataTransfer || !window.createImageBitmap) {
+    btn.textContent = 'Reading…'; return;
+  }
+  ev.preventDefault();
+  btn.disabled = true; btn.textContent = 'Reading…';
+  const dt = new DataTransfer();
+  for (const file of [...input.files].slice(0, 5)) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+      dt.items.add(new File([blob], (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', {type: 'image/jpeg'}));
+    } catch (e) { dt.items.add(file); }  // couldn't decode here: send as is
+  }
+  input.files = dt.files;
+  form.submit();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,409 @@
+"""Claude-powered planning. Optional: everything works without it.
+
+Set ANTHROPIC_API_KEY (or log in with `ant auth login`) to enable.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+
+from . import db
+from .grocery import CATEGORIES
+
+DAYS_ENUM = db.DAYS
+MODEL = os.environ.get("RECIPE_PLANNER_MODEL", "claude-opus-5-5")
+
+
+class AIError(Exception):
+    pass
+
+
+def available() -> bool:
+    if os.environ.get("RECIPE_PLANNER_DISABLE_AI"):
+        return False
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        return False
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return True
+    # `ant auth login` stores a profile the SDK reads automatically.
+    return os.path.isdir(os.path.expanduser("~/.config/anthropic"))
+
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        import anthropic
+
+        _client = anthropic.Anthropic()
+    return _client
+
+
+RECIPE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["title", "description", "cuisine", "protein", "servings", "prep_minutes",
+                 "ingredients", "steps", "tags"],
+    "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "cuisine": {"type": "string"},
+        "protein": {"type": "string", "description": "main protein, e.g. chicken, beef, fish, shrimp, tofu, vegetarian"},
+        "servings": {"type": "integer"},
+        "prep_minutes": {"type": "integer"},
+        "ingredients": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "quantity", "unit", "category"],
+                "properties": {
+                    "name": {"type": "string", "description": "grocery item name as you'd search for it, no prep notes"},
+                    "quantity": {"type": "number"},
+                    "unit": {"type": "string", "description": "tsp, tbsp, cup, oz, lb, can, clove, bunch, or '' for count"},
+                    "category": {"type": "string", "enum": CATEGORIES},
+                },
+            },
+        },
+        "steps": {"type": "array", "items": {"type": "string"}},
+        "tags": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
+def _plan_schema(days: list[str]) -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["summary", "reused", "new"],
+        "properties": {
+            "summary": {"type": "string", "description": "1-3 sentences on how this week reflects the feedback"},
+            "reused": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["day", "recipe_id"],
+                    "properties": {
+                        "day": {"type": "string", "enum": days},
+                        "recipe_id": {"type": "integer"},
+                    },
+                },
+            },
+            "new": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["day", "recipe"],
+                    "properties": {
+                        "day": {"type": "string", "enum": days},
+                        "recipe": RECIPE_SCHEMA,
+                    },
+                },
+            },
+        },
+    }
+
+
+SYSTEM = """You plan weekly dinners for one household and adapt to their feedback over time.
+Prefer recipes they rated highly, avoid anything they disliked or said not to repeat, and act on
+their notes (e.g. "too spicy", "loved it but took too long"). Keep the week varied in cuisine and
+protein, respect dietary rules and dislikes strictly, and keep prep time within their limit.
+Groceries come from Whole Foods via Amazon, so use ingredients that store carries and reuse
+ingredients across the week where it reduces waste. New recipes must be complete and cookable:
+real quantities for the stated servings, grocery-searchable ingredient names, clear steps."""
+
+
+def taste_context(conn, settings: dict) -> str:
+    """Everything the model should know about preferences and history, as compact text."""
+    stats = db.recipe_stats(conn)
+    lines = ["## Household preferences"]
+    lines.append(f"- Servings per meal: {settings.get('household_size')}")
+    lines.append(f"- Max prep time: {settings.get('max_prep_minutes')} minutes")
+    themes = {d: t for d, t in (settings.get("day_themes") or {}).items() if t.strip()}
+    if themes:
+        lines.append("- Day themes (follow these): " + "; ".join(
+            f"{d}: {t}" for d, t in sorted(themes.items(), key=lambda kv: db.DAYS.index(kv[0]))))
+    for key, label in [("dietary", "Dietary rules"), ("dislikes", "Dislikes / never use"),
+                       ("favorite_cuisines", "Favorite cuisines"), ("notes", "Standing notes")]:
+        if settings.get(key):
+            lines.append(f"- {label}: {settings[key]}")
+
+    fb = db.recent_feedback(conn, limit=40)
+    if fb:
+        lines.append("\n## Recent feedback (newest first)")
+        for f in fb:
+            note = f" — \"{f['notes']}\"" if f["notes"] else ""
+            lines.append(f"- {f['title']}: {f['rating']}/5, make again: {f['make_again']}{note}")
+
+    aff = db.taste_affinity(conn)
+    for field in ("cuisine", "protein"):
+        ranked = sorted(aff[field].items(), key=lambda kv: -kv[1]["score"])
+        if ranked:
+            lines.append(f"\n## Average rating by {field}")
+            lines.extend(f"- {k}: {v['avg']:.1f}/5 over {v['n']} meal(s)" for k, v in ranked)
+
+    lines.append("\n## Recipe library (id | title | cuisine | protein | prep | avg rating | last planned)")
+    for r in db.list_recipes(conn):
+        s = stats.get(r["id"], {})
+        avg = f"{s['avg_rating']:.1f}" if s.get("avg_rating") else "-"
+        lines.append(
+            f"{r['id']} | {r['title']} | {r['cuisine']} | {r['protein']} | {r['prep_minutes']}m"
+            f" | {avg} | {s.get('last_week') or 'never'}"
+        )
+    archived = [r["title"] for r in db.list_recipes(conn, include_archived=True) if r["archived"]]
+    if archived:
+        lines.append("\n## Retired recipes (do not suggest these or close variants)")
+        lines.extend(f"- {t}" for t in archived)
+    return "\n".join(lines)
+
+
+def _call(prompt: str, schema: dict, max_tokens: int = 16000, system: str = SYSTEM,
+          images: list[tuple[bytes, str]] | None = None) -> dict:
+    """One structured-output request. images: [(bytes, media type)] sent before the prompt."""
+    import anthropic
+    import base64
+
+    client = _get_client()
+    content: str | list = prompt
+    if images:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": mt,
+                                                "data": base64.b64encode(data).decode()}}
+                   for data, mt in images] + [{"type": "text", "text": prompt}]
+    try:
+        resp = client.beta.messages.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": schema}},
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            messages=[{"role": "user", "content": content}],
+        )
+    except anthropic.AuthenticationError as e:
+        raise AIError("API key rejected") from e
+    except anthropic.RateLimitError as e:
+        raise AIError("rate limited, try again shortly") from e
+    except anthropic.APIStatusError as e:
+        raise AIError(f"API error {e.status_code}") from e
+    except anthropic.APIConnectionError as e:
+        raise AIError("could not reach the API") from e
+
+    if resp.stop_reason == "refusal":
+        raise AIError("request was declined")
+    if resp.stop_reason == "max_tokens":
+        raise AIError("response was cut off")
+    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise AIError("could not parse response") from e
+
+
+def _store_new_recipe(conn, recipe: dict) -> int | None:
+    """Save a Claude recipe, reusing an existing one with the same title.
+    Returns None if it matches a recipe the user retired."""
+    existing = db.find_recipe_by_title(conn, recipe["title"])
+    if existing:
+        return None if existing["archived"] else existing["id"]
+    return db.add_recipe(conn, recipe, source="ai")
+
+
+def plan_week(conn, settings: dict, days: list[str], week_start: dt.date,
+              extra_request: str = "", locked: list[str] | None = None) -> tuple[list[dict], str]:
+    """Returns ([{day, recipe_id}], summary). Unknown ids and duplicate days are dropped."""
+    ratio = settings.get("new_recipe_ratio")
+    ratio = 0.4 if ratio is None else float(ratio)
+    n_new = max(0, round(len(days) * ratio))
+    prompt = (
+        f"{taste_context(conn, settings)}\n\n"
+        f"## Task\nPlan dinners for the week of {week_start.isoformat()} on exactly these days: "
+        f"{', '.join(days)}. Each day gets one dinner.\n"
+        f"Aim for about {n_new} brand-new recipe(s) in `new` and reuse library recipes by id in `reused` "
+        f"for the rest (favor high ratings; skip anything planned in the last two weeks unless it's a "
+        f"standout favorite). New recipes should serve {settings.get('household_size')}."
+    )
+    if locked:
+        prompt += (f"\nAlready fixed for other days this week (don't repeat them; keep the week "
+                   f"varied around them): {'; '.join(locked)}")
+    if extra_request.strip():
+        prompt += f"\nThis week's special request: {extra_request.strip()}"
+
+    data = _call(prompt, _plan_schema(days))
+    valid_ids = {r["id"] for r in db.list_recipes(conn)}
+    picks: list[dict] = []
+    used_days: set[str] = set()
+    used_ids: set[int] = set()
+
+    def take(day: str, rid: int | None) -> None:
+        if rid and day in days and day not in used_days and rid not in used_ids:
+            picks.append({"day": day, "recipe_id": rid})
+            used_days.add(day)
+            used_ids.add(rid)
+
+    for item in data.get("reused", []):
+        if item["recipe_id"] in valid_ids:
+            take(item["day"], item["recipe_id"])
+    for item in data.get("new", []):
+        if item["day"] in days and item["day"] not in used_days and item["recipe"].get("ingredients"):
+            take(item["day"], _store_new_recipe(conn, item["recipe"]))
+    return picks, data.get("summary", "")
+
+
+def suggest_replacement(conn, settings: dict, plan: dict, meal: dict, request: str) -> tuple[int, str]:
+    """Pick or invent one replacement dinner. Returns (recipe_id, short reason)."""
+    current = db.get_recipe(conn, meal["recipe_id"])
+    others = [m["recipe"]["title"] for m in plan["meals"] if m["id"] != meal["id"]]
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reason", "reuse_recipe_id", "recipe"],
+        "properties": {
+            "reason": {"type": "string", "description": "one short sentence for the user"},
+            "reuse_recipe_id": {"type": "integer", "description": "library id to reuse, or 0 to use `recipe`"},
+            "recipe": RECIPE_SCHEMA,
+        },
+    }
+    prompt = (
+        f"{taste_context(conn, settings)}\n\n## Task\nReplace {meal['day']}'s dinner "
+        f"(currently \"{current['title']}\"). The rest of the week: {', '.join(others) or 'nothing else'}. "
+        "Pick something that fits the week's variety. Either reuse a library recipe "
+        "(set reuse_recipe_id, and give a minimal placeholder `recipe`) or invent a new one "
+        "(reuse_recipe_id = 0, full `recipe`)."
+    )
+    if request.strip():
+        prompt += f"\nThe user asked for: {request.strip()}"
+    data = _call(prompt, schema)
+    valid = {r["id"] for r in db.list_recipes(conn)}
+    rid = data.get("reuse_recipe_id") or 0
+    if rid and rid in valid and rid != current["id"]:
+        return rid, data.get("reason", "")
+    recipe = data.get("recipe") or {}
+    if not recipe.get("ingredients"):
+        raise AIError("no usable recipe returned")
+    rid = _store_new_recipe(conn, recipe)
+    if rid is None:
+        raise AIError("suggested a recipe you retired")
+    return rid, data.get("reason", "")
+
+
+def recipe_from_text(text: str, servings: int) -> dict:
+    """Turn a pasted recipe (or a dish idea) into a structured recipe."""
+    prompt = (
+        "Convert the following into a structured recipe. If it is only a dish idea, write a "
+        f"complete recipe for {servings} servings.\n\n---\n{text.strip()}\n---"
+    )
+    return _call(prompt, RECIPE_SCHEMA)
+
+
+def revise_recipe(recipe: dict, notes: list[str]) -> dict:
+    """Rewrite a recipe so it incorporates the cook's notes from past attempts."""
+    slim = {k: recipe[k] for k in ("title", "description", "cuisine", "protein", "servings",
+                                   "prep_minutes", "ingredients", "steps", "tags")}
+    prompt = (
+        "Here is a recipe I've cooked, and my notes from cooking it. Revise the recipe so it "
+        "reflects the notes (adjust quantities, ingredients, steps or timing). Keep everything "
+        "the notes don't touch the same, and keep the same title unless the dish really changed.\n\n"
+        f"Recipe:\n{json.dumps(slim, indent=1)}\n\nMy notes (newest first):\n"
+        + "\n".join(f"- {n}" for n in notes)
+    )
+    return _call(prompt, RECIPE_SCHEMA)
+
+
+def discover(conn, settings: dict, count: int = 4, request: str = "") -> list[dict]:
+    """Brand-new recipe ideas tailored to the household's tastes (not saved)."""
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["recipes"],
+        "properties": {"recipes": {"type": "array", "items": RECIPE_SCHEMA}},
+    }
+    prompt = (
+        f"{taste_context(conn, settings)}\n\n## Task\nSuggest {count} new dinner recipes I don't "
+        "already have that I'm likely to love, based on what I've rated well. Make them varied "
+        f"and serve {settings.get('household_size')}."
+    )
+    if request.strip():
+        prompt += f"\nWhat I'm in the mood for: {request.strip()}"
+    data = _call(prompt, schema)
+    existing = {r["title"].lower() for r in db.list_recipes(conn, include_archived=True)}
+    return [r for r in data.get("recipes", []) if r["title"].lower() not in existing and r.get("ingredients")]
+
+
+KITCHEN_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["items"],
+    "properties": {"items": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["name", "kind"],
+        "properties": {
+            "name": {"type": "string", "description": "plain grocery name, lowercase, e.g. 'baby spinach', 'cheddar cheese', 'eggs'"},
+            "kind": {"type": "string", "enum": ["fresh", "staple"],
+                     "description": "staple = shelf-stable things a kitchen keeps stocked (spices, oils, vinegar, condiments, flour, sugar, rice, pasta, canned goods); fresh = everything else"},
+        }}}},
+}
+IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/gif")
+
+
+def scan_kitchen(images: list[tuple[bytes, str]]) -> list[dict]:
+    """Photos of a fridge, pantry shelf or grocery receipt -> [{name, kind}] (deduplicated)."""
+    prompt = (
+        "These photos show my fridge, pantry or a grocery receipt. List the food and cooking "
+        "ingredients you can identify, as plain grocery names a recipe would use (a receipt line "
+        "like 'ORG BBY SPNCH 5OZ' becomes 'baby spinach'). One entry per distinct item; skip "
+        "non-food, drinks other than milk, and anything you can't make out."
+    )
+    data = _call(prompt, KITCHEN_SCHEMA, max_tokens=8000, images=images,
+                 system="You help a home cook keep track of the food they have.")
+    out, seen = [], set()
+    for it in data.get("items", []):
+        name = (it.get("name") or "").strip().lower()
+        if name and name not in seen:
+            seen.add(name)
+            out.append({"name": name, "kind": it.get("kind") if it.get("kind") in ("fresh", "staple") else "fresh"})
+    return out
+
+
+def prep_plan(plan: dict) -> dict:
+    """A batch-prep plan for the week's dinners: {sessions: [...], night_before: [...]}."""
+    days = [m["day"] for m in plan["meals"]] or ["Mon"]
+    task = {"type": "object", "additionalProperties": False, "required": ["text", "detail", "days"],
+            "properties": {"text": {"type": "string", "description": "short imperative, e.g. 'Chop 3 onions'"},
+                           "detail": {"type": "string", "description": "amounts, how to store it, how long it keeps"},
+                           "days": {"type": "array", "items": {"type": "string", "enum": days}}}}
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["sessions", "night_before"],
+        "properties": {
+            "sessions": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["title", "subtitle", "tasks"],
+                "properties": {"title": {"type": "string"},
+                               "subtitle": {"type": "string", "description": "which dinners it covers and roughly how long it takes"},
+                               "tasks": {"type": "array", "items": task}}}},
+            "night_before": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False, "required": ["day", "text"],
+                "properties": {"day": {"type": "string", "enum": DAYS_ENUM},
+                               "text": {"type": "string"}}}},
+        },
+    }
+    meals = []
+    for m in plan["meals"]:
+        r = m["recipe"]
+        slim = {"day": m["day"], "title": r["title"], "servings": m.get("total_servings") or m["servings"],
+                "recipe_servings": r["servings"], "ingredients": r["ingredients"], "steps": r["steps"]}
+        meals.append(slim)
+    prompt = (
+        "Plan batch prep for this week's dinners so weeknight cooking is fast. Groceries arrive "
+        "at the weekend. Group the work into one or two sessions (a weekend session, plus a "
+        "midweek top-up only if later meals need it, since chopped vegetables keep 3-4 days and "
+        "fresh meat or fish 1-2 days). Combine the same task across meals (chop all the onions at "
+        "once, with the total amount), order tasks so the session flows (start long-cooking "
+        "things first), and skip anything that's better done on the day (avocado, herbs, "
+        "searing). Add night-before reminders for thawing and marinades. Scale amounts to the "
+        "servings given.\n\n" + json.dumps(meals, indent=1)
+    )
+    return _call(prompt, schema, max_tokens=12000,
+                 system="You are a practical home-cooking coach who plans efficient meal prep.")

@@ -1,1 +1,7 @@
 secrets.txt
+.venv/
+__pycache__/
+*.pyc
+instance/
+*.db
+.pytest_cache/

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Discover{% endblock %}
+{% block content %}
+<h1>Discover new recipes</h1>
+{% if not ai_available %}
+  <p class="muted">This uses Claude to suggest recipes based on your ratings. Set <code>ANTHROPIC_API_KEY</code> and restart the app to use it.</p>
+{% else %}
+<form method="post" class="card row">
+  <input type="text" name="request" placeholder="Optional: in the mood for… e.g. cozy soups, something Greek" style="flex:1; min-width:220px">
+  <button class="primary" type="submit" onclick="this.textContent='Thinking…'">Suggest 4 recipes</button>
+</form>
+{% endif %}
+{% for r in ideas %}
+<div class="card">
+  <div class="spread">
+    <div>
+      <h3>{{ r.title }}</h3>
+      <div class="muted small">{{ r.cuisine }} · {{ r.protein }} · {{ r.prep_minutes }} min · serves {{ r.servings }}</div>
+    </div>
+    <form method="post" action="{{ url_for('keep_recipe') }}" class="keep">
+      <input type="hidden" name="recipe" value="{{ ideas_json[loop.index0] }}">
+      <button class="primary" type="submit">Keep</button>
+    </form>
+  </div>
+  <p class="small">{{ r.description }}</p>
+  <details>
+    <summary>Ingredients &amp; steps</summary>
+    <ul class="small">{% for i in r.ingredients %}<li>{{ i|ingredient_line }}</li>{% endfor %}</ul>
+    <ol class="small steps">{% for s in r.steps %}<li>{{ s }}</li>{% endfor %}</ol>
+  </details>
+</div>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // Keep without leaving the page, so you can keep several.
+  document.querySelectorAll('form.keep').forEach(f => f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = f.querySelector('button');
+    const res = await fetch(f.action, {method: 'POST', body: new FormData(f), headers: {'X-Requested-With': 'fetch'}});
+    if (res.ok) { const d = await res.json(); btn.outerHTML = `<a class="btn" href="${d.url}">Kept ✓</a>`; }
+  }));
+</script>
+{% endblock %}

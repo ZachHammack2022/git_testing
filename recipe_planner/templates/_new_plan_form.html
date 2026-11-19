@@ -1,0 +1,19 @@
+<form method="post" action="{{ url_for('new_plan') }}" class="card">
+  <h3>Plan a week</h3>
+  <div class="row">
+    <label class="inline">Week of <input type="date" name="week_start" value="{{ next_week }}"></label>
+    {% if ai_available %}
+      <label class="inline"><input type="checkbox" name="use_ai" {{ 'checked' if settings.use_ai }}> Use Claude</label>
+    {% endif %}
+  </div>
+  <label for="useup">Use up <span class="muted small">(optional — ingredients you already have)</span></label>
+  <input type="text" id="useup" name="use_up" value="{{ (on_hand or [])|join(', ') }}" placeholder="e.g. spinach, half a cabbage, feta" style="width:100%">
+  {% if on_hand %}<p class="muted small" style="margin:4px 0 0">Filled in from <a href="{{ url_for('kitchen') }}">your kitchen</a>.</p>{% endif %}
+  {% if ai_available %}
+  <label for="req">Anything special this week? <span class="muted small">(optional)</span></label>
+  <input type="text" id="req" name="request" placeholder="e.g. guests Saturday, use up the spinach, nothing heavy" style="width:100%">
+  {% else %}
+  <p class="muted small">Planning from your recipe library using your ratings. Add an <code>ANTHROPIC_API_KEY</code> to get new recipe ideas from Claude.</p>
+  {% endif %}
+  <p><button class="primary" type="submit" onclick="this.textContent='Planning…'">Make plan</button></p>
+</form>

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Prep · {{ plan.week_start|pretty_date }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>Prep plan</h1>
+    <p class="muted small">Week of {{ plan.week_start|pretty_date }} · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">plan</a>
+      · {{ 'Written by Claude' if prep.source == 'claude' else 'Built from your recipes' }}</p>
+  </div>
+  <div class="row noprint">
+    {% if ai_available %}
+    <form method="post" action="{{ url_for('prep_ai', plan_id=plan.id) }}">
+      <button type="submit" class="{{ '' if prep.source == 'claude' and not stale else 'primary' }}" onclick="this.textContent='Thinking…'">{{ 'Redo with Claude' if prep.source == 'claude' else 'Make a smarter plan with Claude' }}</button>
+    </form>
+    {% endif %}
+    {% if prep.source == 'claude' %}
+    <form method="post" action="{{ url_for('prep_reset', plan_id=plan.id) }}"><button type="submit" class="link small">Use the built-in plan</button></form>
+    {% endif %}
+    <button type="button" onclick="window.print()">Print</button>
+  </div>
+</div>
+{% if stale %}<div class="flash error">The dinners changed since Claude wrote this. Redo it to match the new plan.</div>{% endif %}
+
+{% for s in prep.sessions %}
+<div class="card">
+  <h3 style="margin:0">{{ s.title }}</h3>
+  {% if s.subtitle %}<p class="muted small" style="margin:2px 0 8px">{{ s.subtitle }}</p>{% endif %}
+  <ul class="items prep">
+    {% for t in s.tasks %}
+    <li class="{{ 'done' if t.id in done }}" data-id="{{ t.id }}">
+      <input type="checkbox" class="tick" {{ 'checked' if t.id in done }} aria-label="{{ t.text }}">
+      <div style="flex:1"><strong>{{ t.text }}</strong>{% if t.detail %}<div class="muted small">{{ t.detail }}</div>{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
+<div class="card"><p class="muted" style="margin:0">Nothing to prep ahead this week — every dinner is quick enough to do on the day{{ ', or already cooked' if plan.meals }}.{% if ai_available %} Claude may still find a few things.{% endif %}</p></div>
+{% endfor %}
+
+{% if prep.night_before %}
+<div class="card">
+  <h3 style="margin-top:0">Night-before reminders</h3>
+  <ul class="items prep">
+    {% for t in prep.night_before %}
+    <li class="{{ 'done' if t.id in done }}" data-id="{{ t.id }}">
+      <input type="checkbox" class="tick" {{ 'checked' if t.id in done }} aria-label="{{ t.text }}">
+      <div style="flex:1"><span class="pill">{{ t.day }}</span> {{ t.text }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('ul.prep input.tick').forEach(cb => cb.addEventListener('change', () => {
+  const li = cb.closest('li');
+  li.classList.toggle('done', cb.checked);
+  fetch('{{ url_for('prep_tick', plan_id=plan.id) }}', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: li.dataset.id, done: cb.checked})});
+}));
+</script>
+{% endblock %}

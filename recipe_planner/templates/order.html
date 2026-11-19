@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+{% block title %}Order{% endblock %}
+{% block content %}
+{% set total = order['items']|length %}
+{% set done = order['items']|selectattr('added')|list|length %}
+<div class="spread">
+  <div>
+    <h1>Whole Foods order</h1>
+    <p class="muted small">
+      {% if plan %}Week of {{ plan.week_start|pretty_date }} · <a href="{{ url_for('show_plan', plan_id=plan.id) }}">plan</a> · {% endif %}
+      {% if order.status == 'placed' %}Placed {{ order.placed_at|pretty_date }} ✓{% else %}Started {{ order.created_at|pretty_date }}{% endif %}
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ WHOLE_FOODS }}" target="_blank" rel="noopener">Whole Foods store ↗</a>
+    <a class="btn" href="{{ AMAZON_CART }}" target="_blank" rel="noopener">Amazon cart ↗</a>
+  </div>
+</div>
+
+{% if order.status != 'placed' %}
+{% set af_done = autofill.state == 'done' %}
+{% if autofill.sync and autofill.sync.ok %}
+  {% set skipped_items = order['items']|rejectattr('added')|list %}
+  {% set in_cart = order['items']|selectattr('added')|list|length %}
+{% else %}
+  {% set skipped_items = order['items']|selectattr('name', 'in', autofill.skipped or [])|list %}
+  {% set in_cart = autofill.added %}
+{% endif %}
+
+{% if af_done %}
+<div class="card ready" id="ready-card">
+  <div class="spread">
+    <div>
+      <div class="day">🛒 Cart ready</div>
+      <h2 style="margin:2px 0 4px">Your cart is ready for review</h2>
+      <p class="small" style="margin:0"><strong>{{ in_cart }} of {{ order['items']|length }}</strong> items from this list are in your Amazon cart{% if autofill.sync and autofill.sync.ok %} (checked against the cart){% endif %}. Check sizes and quantities (it adds one of each), swap anything you want, then pick a delivery window and check out.</p>
+    </div>
+    <a class="btn primary big" href="{{ AMAZON_CART }}" target="_blank" rel="noopener">Review cart on Amazon ↗</a>
+  </div>
+  {% if skipped_items %}
+  <div style="margin-top:12px">
+    <strong class="small">Add these yourself ({{ skipped_items|length }}):</strong>
+    <ul class="items small">
+      {% for it in skipped_items %}
+      <li><a href="{{ it.url }}" target="_blank" rel="noopener" style="flex:1">{{ it.name }}{% if it.amount %} — {{ it.amount }}{% endif %} ↗</a>
+        {% if autofill.screenshots and autofill.screenshots.get(it.name) %}<a class="muted" href="{{ url_for('autofill_shot', order_id=order.id, name=autofill.screenshots[it.name]) }}" target="_blank">what I saw</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <div class="row small" style="margin-top:12px">
+    <a href="#placed-form">Checked out? Mark the order placed ↓</a>
+    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}" style="margin-left:auto">
+      <button type="submit" class="link small">Run the cart filler again</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card {{ 'attention' if autofill.state == 'human' }}" id="autofill-card" style="border-color: var(--accent)">
+  <div class="spread">
+    <div>
+      <h3 style="margin:0" id="autofill-title">{{ '✋ Needs you' if autofill.state == 'human' else 'Fill my cart automatically' }}</h3>
+      <p class="muted small" style="margin:4px 0 0">A browser window opens; sign in to Amazon the first time. Each item gets added and ticked off here, then it checks your cart and you get a "cart ready" summary. It never checks out.</p>
+    </div>
+    {% if autofill_ready %}
+    <form method="post" action="{{ url_for('start_autofill', order_id=order.id) }}" id="autofill-form">
+      <button class="primary" type="submit" id="autofill-btn" {{ 'disabled' if autofill_active }}>{{ 'Filling…' if autofill_active else 'Fill my cart' }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if not autofill_ready %}
+  <p class="small" style="margin-bottom:0">One-time setup: in a terminal in the app folder run<br>
+    <code>.venv/bin/pip install playwright &amp;&amp; .venv/bin/python -m playwright install chromium</code><br>then restart the app.</p>
+  {% endif %}
+  <div id="autofill-msg" class="flash {{ 'error' if autofill.state == 'error' }}" style="margin:10px 0 0; {{ '' if autofill.message else 'display:none' }}">{{ autofill.message }}</div>
+  <form method="post" action="{{ url_for('autofill_go', order_id=order.id) }}" id="go-form" style="margin-top:8px; {{ '' if autofill.state == 'signin' else 'display:none' }}">
+    <button type="submit">I'm signed in — start</button>
+  </form>
+  {% if autofill.screenshots and not autofill_active %}
+  <details style="margin-top:8px">
+    <summary>What I saw for items I couldn't add ({{ autofill.screenshots|length }})</summary>
+    <div class="grid" style="margin-top:8px">
+      {% for name, shot in autofill.screenshots|dictsort %}
+      <a href="{{ url_for('autofill_shot', order_id=order.id, name=shot) }}" target="_blank" class="small">{{ name }}<br>
+        <img src="{{ url_for('autofill_shot', order_id=order.id, name=shot) }}" alt="Screenshot for {{ name }}" style="width:100%; border:1px solid var(--line); border-radius:6px"></a>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<div class="card">
+  <div class="spread small"><span id="count">{{ done }} / {{ total }} in cart</span>
+    {% if order.status != 'placed' %}
+    <div class="row">
+      {% if can_sync %}<button type="button" id="sync-btn" title="Read your Amazon and Whole Foods carts and update the ticks">↻ Sync with cart</button>{% endif %}
+      <button type="button" id="next-btn">Or add by hand: open next item ↗</button>
+    </div>
+    {% endif %}
+  </div>
+  <div class="progress" style="margin-top:8px"><div id="bar" style="width: {{ (100 * done / total) if total else 0 }}%"></div></div>
+  {% if can_sync and order.status != 'placed' %}
+  <div class="small muted" id="sync-line" style="margin-top:8px"></div>
+  <form method="post" action="{{ url_for('sync_order', order_id=order.id) }}" id="sync-show" style="display:none; margin-top:6px">
+    <input type="hidden" name="show" value="1"><button type="submit" class="small">Sync with the browser window showing</button>
+  </form>
+  <div class="small" id="extras" style="margin-top:6px; display:none"></div>
+  {% endif %}
+  {% if autofill_ready and order.status != 'placed' %}
+  <div class="row small" id="preview-bar" style="margin-top:10px">
+    {% if estimate.priced %}<span id="estimate"><strong>≈ ${{ '%.2f'|format(estimate.total) }}</strong> <span class="muted">for {{ estimate.priced }} of {{ estimate.count }} items priced (one of each)</span></span>{% endif %}
+    <span class="muted" id="preview-line">{% if autofill.state == 'previewing' %}{{ autofill.message or 'Looking up products…' }}{% elif autofill.preview and autofill.preview.error %}{{ autofill.preview.error }}{% endif %}</span>
+    <form method="post" action="{{ url_for('preview_order', order_id=order.id) }}" style="margin-left:auto" class="row">
+      {% if order['items']|selectattr('options')|list %}<input type="hidden" name="refresh" value="1">{% endif %}
+      <button type="submit" id="preview-btn" {{ 'disabled' if autofill.state in ('previewing', 'syncing') or autofill_active }}>{{ '🔍 Looking up…' if autofill.state == 'previewing' else ('🔍 Refresh products' if order['items']|selectattr('options')|list else '🔍 Preview products') }}</button>
+      {% if autofill.preview and autofill.preview.error %}<button type="submit" name="show" value="1" class="small">Preview with the browser showing</button>{% endif %}
+    </form>
+  </div>
+  {% endif %}
+  <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
+</div>
+
+{% for cat, items in groups %}
+<div class="card">
+  <h3 style="text-transform:capitalize">{{ cat }}</h3>
+  <ul class="items">
+    {% for it in items %}
+    <li id="item-{{ it.key|replace(' ', '-') }}" class="{{ 'done' if it.added }}" data-key="{{ it.key }}" data-url="{{ it.url }}">
+      <input type="checkbox" class="added" {{ 'checked' if it.added }} aria-label="{{ it.name }} added to cart">
+      <div style="flex:1">
+        <a class="name" href="{{ it.url }}" target="_blank" rel="noopener">{{ it.name }}</a>
+        {% if it.amount %}<span class="muted"> — {{ it.amount }}</span>{% endif %}
+        {% if it.recipes and it.recipes[0] in ('always buy', 'added') %}<span class="pill">{{ it.recipes[0] }}</span>{% endif %}
+        {% if it.has_pick %}<span class="pill pick-pill">your usual{% if it.pick_label %}: {{ it.pick_label }}{% endif %}</span>{% endif %}
+        {% if it.options %}
+        {% set ch = chosen[it.key] %}
+        <div class="product" data-options='{{ it.options|tojson|forceescape }}' data-chosen="{{ ch.asin if ch else '' }}" data-start="{{ it.options.index(ch) if ch in it.options else 0 }}">
+          <img alt="" loading="lazy" referrerpolicy="no-referrer">
+          <div class="pinfo">
+            <a class="ptitle small" target="_blank" rel="noopener"></a>
+            <div class="small"><strong class="pprice"></strong> <span class="muted punit"></span> <span class="pill pmine" hidden>✓ will be added</span></div>
+            <div class="row small pnav">
+              <button type="button" class="pprev" aria-label="Previous product">‹</button>
+              <span class="muted pcount"></span>
+              <button type="button" class="pnext" aria-label="Next product">›</button>
+              <button type="button" class="puse primary">Use this one</button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        <details>
+          <summary class="small">{{ 'change product' if it.has_pick else 'save product' }}</summary>
+          <form method="post" action="{{ url_for('save_pick', order_id=order.id) }}" class="row">
+            <input type="hidden" name="key" value="{{ it.key }}">
+            <input type="url" name="url" placeholder="Paste amazon.com product link" value="{{ it.url if it.has_pick else '' }}" style="flex:2; min-width:200px">
+            <input type="text" name="label" placeholder="Label (optional)" value="{{ it.pick_label }}" style="flex:1; min-width:120px">
+            <button type="submit">Save</button>
+          </form>
+          <form method="post" action="{{ url_for('remove_order_item', order_id=order.id, key=it.key) }}" style="margin-top:6px">
+            <button class="link small" type="submit">remove from order</button>
+          </form>
+        </details>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<form method="post" action="{{ url_for('add_order_item', order_id=order.id) }}" class="card row">
+  <input type="text" name="items" placeholder="Add something else: e.g. 1 dozen eggs, sparkling water" style="flex:1; min-width:220px">
+  <button type="submit">Add</button>
+</form>
+
+{% if order.status != 'placed' %}
+<form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card" id="placed-form">
+  <h3>Done?</h3>
+  <p class="muted small">Check out on Amazon (choose your Whole Foods delivery window), then mark the order placed here.</p>
+  <div class="row">
+    <label class="inline small">Order total $ <input type="text" name="total" inputmode="decimal" placeholder="optional" style="width:110px"></label>
+    <button class="primary" type="submit">I placed the order ✓</button>
+  </div>
+</form>
+{% else %}
+<form method="post" action="{{ url_for('order_placed', order_id=order.id) }}" class="card row">
+  <label class="inline small">Order total $ <input type="text" name="total" inputmode="decimal" value="{{ '%.2f'|format(order.total) if order.total is not none else '' }}" style="width:110px"></label>
+  <button type="submit">Save</button>
+</form>
+{% endif %}
+
+<details>
+  <summary>Plain-text list</summary>
+  <pre class="list" id="plain">{{ text }}</pre>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+const orderId = {{ order.id }};
+const total = {{ order['items']|length }};
+function refresh() {
+  const done = document.querySelectorAll('input.added:checked').length;
+  document.getElementById('count').textContent = `${done} / ${total} in cart`;
+  document.getElementById('bar').style.width = (total ? 100 * done / total : 0) + '%';
+}
+async function setAdded(li, added) {
+  li.classList.toggle('done', added);
+  li.querySelector('input.added').checked = added;
+  refresh();
+  await fetch(`/orders/${orderId}/items/${encodeURIComponent(li.dataset.key)}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({added})
+  });
+}
+document.querySelectorAll('input.added').forEach(cb =>
+  cb.addEventListener('change', () => setAdded(cb.closest('li'), cb.checked)));
+const nextBtn = document.getElementById('next-btn');
+if (nextBtn) nextBtn.addEventListener('click', () => {
+  const li = [...document.querySelectorAll('ul.items li[data-key]')].find(l => !l.querySelector('input.added').checked);
+  if (!li) { nextBtn.textContent = 'All done ✓'; return; }
+  window.open(li.dataset.url, '_blank', 'noopener');
+  setAdded(li, true);
+  li.scrollIntoView({block: 'center'});
+});
+// Live progress while the cart filler runs.
+const baseTitle = document.title;
+let lastState = {{ (autofill.state or '')|tojson }};
+function notify(title, body) {
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') new Notification(title, {body});
+  } catch (e) {}
+}
+const afForm = document.getElementById('autofill-form');
+if (afForm && 'Notification' in window && Notification.permission === 'default') {
+  // Ask once, on the click that starts the run, so we can ping you when it needs you / finishes.
+  afForm.addEventListener('submit', () => { try { Notification.requestPermission(); } catch (e) {} });
+}
+const canSync = {{ (can_sync and order.status != 'placed')|tojson }};
+let sync = {{ (autofill.sync or {})|tojson }};
+let polling = false;
+const doneCardShown = !!document.getElementById('ready-card');
+const FILL_STATES = ['starting', 'signin', 'human', 'waiting', 'running'];
+
+// Product previews: flip through options, "Use this one" saves it as your pick.
+const money = (p) => p == null ? 'price n/a' : '$' + p.toFixed(2);
+document.querySelectorAll('.product').forEach(box => {
+  const opts = JSON.parse(box.dataset.options);
+  let i = +box.dataset.start || 0;
+  const li = box.closest('li');
+  const q = (sel) => box.querySelector(sel);
+  function show() {
+    const o = opts[i];
+    q('img').src = o.image || ''; q('img').style.visibility = o.image ? '' : 'hidden';
+    q('.ptitle').textContent = o.title || o.asin; q('.ptitle').href = `https://www.amazon.com/dp/${o.asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
+    q('.pprice').textContent = money(o.price);
+    q('.punit').textContent = o.unit_price ? `(${o.unit_price})` : '';
+    q('.pcount').textContent = `${i + 1} of ${opts.length}`;
+    const mine = o.asin === box.dataset.chosen;
+    q('.pmine').hidden = !mine; q('.puse').hidden = mine;
+    q('.pprev').disabled = i === 0; q('.pnext').disabled = i === opts.length - 1;
+  }
+  q('.pprev').addEventListener('click', () => { if (i > 0) { i--; show(); } });
+  q('.pnext').addEventListener('click', () => { if (i < opts.length - 1) { i++; show(); } });
+  q('.puse').addEventListener('click', async () => {
+    const btn = q('.puse'); btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res = await fetch(`/orders/${orderId}/items/${encodeURIComponent(li.dataset.key)}/choose`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({asin: opts[i].asin})});
+      const d = await res.json();
+      box.dataset.chosen = opts[i].asin;
+      li.dataset.url = `https://www.amazon.com/dp/${opts[i].asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
+      li.querySelector('a.name').href = li.dataset.url;
+      let pill = li.querySelector('.pick-pill');
+      if (!pill) { pill = document.createElement('span'); pill.className = 'pill pick-pill'; li.querySelector('a.name').parentNode.insertBefore(pill, box); }
+      pill.textContent = 'your usual: ' + d.label;
+      const est = document.getElementById('estimate');
+      if (est && d.estimate) est.querySelector('strong').textContent = '≈ $' + d.estimate.total.toFixed(2);
+    } catch (e) {}
+    btn.disabled = false; btn.textContent = 'Use this one';
+    show();
+  });
+  show();
+});
+
+function ago(t) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `${Math.round(s / 3600)} h ago`;
+}
+function renderSync(state) {
+  const line = document.getElementById('sync-line');
+  if (!line) return;
+  const show = document.getElementById('sync-show');
+  const extras = document.getElementById('extras');
+  const btn = document.getElementById('sync-btn');
+  if (btn) { btn.disabled = state === 'syncing'; btn.textContent = state === 'syncing' ? '↻ Syncing…' : '↻ Sync with cart'; }
+  if (state === 'syncing') { line.textContent = 'Checking your Amazon cart…'; return; }
+  if (!sync || !sync.at) { line.textContent = 'Not synced with your Amazon cart yet.'; return; }
+  if (!sync.ok) {
+    line.textContent = `Couldn't read your cart (${ago(sync.at)}): ${sync.error}`;
+    if (show) show.style.display = '';
+    return;
+  }
+  if (show) show.style.display = 'none';
+  line.textContent = `Matched to your Amazon cart ${ago(sync.at)} · ${sync.cart_count} item${sync.cart_count === 1 ? '' : 's'} in your cart`
+    + (sync.cart_count === 0 ? ' (it\'s empty)' : '') + '. Updates when you come back to this tab.';
+  if (extras) {
+    const ex = sync.extras || [];
+    extras.style.display = ex.length ? '' : 'none';
+    extras.textContent = ex.length ? `Also in your cart (not on this list): ${ex.join(' · ')}` : '';
+  }
+}
+
+async function poll() {
+  let d;
+  try {
+    const res = await fetch(`/orders/${orderId}/autofill`);
+    if (!res.ok) throw new Error();
+    d = await res.json();
+  } catch (e) { setTimeout(poll, 4000); return; }
+  const st = d.status || {};
+  const filling = FILL_STATES.includes(st.state);
+  if (st.sync) sync = st.sync;
+  renderSync(st.state);
+
+  if (filling) {
+    const msg = document.getElementById('autofill-msg');
+    if (msg && st.message) {
+      msg.style.display = ''; msg.textContent = st.message;
+      msg.classList.toggle('error', st.state === 'error');
+    }
+    const go = document.getElementById('go-form');
+    if (go) go.style.display = st.state === 'signin' ? '' : 'none';
+    const card = document.getElementById('autofill-card');
+    const title = document.getElementById('autofill-title');
+    const needsYou = st.state === 'human' || st.state === 'signin';
+    if (card) card.classList.toggle('attention', needsYou);
+    if (title) title.textContent = st.state === 'human' ? '✋ Needs you' : (st.state === 'signin' ? '✋ Sign in to Amazon' : 'Filling your cart…');
+    document.title = needsYou ? '✋ Needs you — ' + baseTitle : `${(d.added || []).length}/${total} · ${baseTitle}`;
+    if (needsYou && lastState !== st.state) notify('Meal Planner needs you', st.message || 'Check the browser window.');
+  }
+  const pl = document.getElementById('preview-line');
+  if (pl && st.state === 'previewing') pl.textContent = st.message || 'Looking up products…';
+  if (lastState === 'previewing' && st.state !== 'previewing') { location.reload(); return; }
+  if (st.state === 'done' && FILL_STATES.includes(lastState)) notify('🛒 Your cart is ready for review', st.message || '');
+  const wasFilling = FILL_STATES.includes(lastState);
+  lastState = st.state;
+
+  const added = new Set(d.added);
+  document.querySelectorAll('ul.items li[data-key]').forEach(li => {
+    const on = added.has(li.dataset.key);
+    li.classList.toggle('done', on);
+    li.querySelector('input.added').checked = on;
+  });
+  refresh();
+  if (d.active) { setTimeout(poll, 1500); return; }
+  polling = false;
+  document.title = baseTitle;
+  // Reload only when the page layout must change: a fill run ended, or the
+  // "cart ready" card should appear/disappear (e.g. you emptied your cart).
+  if (wasFilling || (st.state === 'done') !== doneCardShown) location.reload();
+}
+function startPolling() { if (!polling) { polling = true; poll(); } }
+
+async function startSync() {
+  if (!canSync || polling) return;
+  try {
+    const res = await fetch(`/orders/${orderId}/sync`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const d = await res.json();
+    if (d.started) { renderSync('syncing'); startPolling(); }
+  } catch (e) {}
+}
+const syncBtn = document.getElementById('sync-btn');
+if (syncBtn) syncBtn.addEventListener('click', startSync);
+const stale = (secs) => !sync || !sync.at || (Date.now() / 1000 - sync.at) > secs;
+
+renderSync({{ (autofill.state or '')|tojson }});
+setInterval(() => { if (!polling) renderSync(lastState); }, 30000);
+{% if autofill_active or autofill.state in ('syncing', 'previewing') %}
+startPolling();
+{% else %}
+if (canSync && stale(120)) startSync();                 // opening the page checks the cart
+{% endif %}
+// Coming back to this tab (e.g. after editing your cart on Amazon) re-checks it,
+// and an open tab re-checks every few minutes.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && stale(20)) startSync();
+});
+setInterval(() => { if (document.visibilityState === 'visible' && stale(170)) startSync(); }, 60000);
+</script>
+{% endblock %}

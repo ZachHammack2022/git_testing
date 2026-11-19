@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Recipes{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1>{{ 'Retired recipes' if show_archived else 'Recipes' }}</h1>
+  <div class="row">
+    <a class="btn" href="{{ url_for('discover') }}">Discover ✨</a>
+    <a class="btn primary" href="{{ url_for('new_recipe') }}">+ Add recipe</a>
+  </div>
+</div>
+<form class="row" method="get" style="margin-bottom:14px">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search title, cuisine, protein, tag" style="flex:1; min-width:200px">
+  {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
+  <select name="sort" onchange="this.form.submit()" aria-label="Sort">
+    {% for v, label in [('name','A–Z'),('rating','Top rated'),('quick','Quickest'),('newest','Newest')] %}
+    <option value="{{ v }}" {{ 'selected' if sort == v }}>{{ label }}</option>{% endfor %}
+  </select>
+  <label class="inline small"><input type="checkbox" name="untried" value="1" {{ 'checked' if untried }} onchange="this.form.submit()"> Never tried</label>
+  <button type="submit">Search</button>
+  <a href="{{ url_for('recipes', archived=None if show_archived else 1) }}" class="small">{{ 'Show active' if show_archived else 'Show retired' }}</a>
+</form>
+<p class="muted small">{{ recipes|length }} recipe{{ 's' if recipes|length != 1 }}</p>
+<div class="grid">
+  {% for r in recipes %}
+  {% set s = stats.get(r.id, {}) %}
+  <div class="card meal">
+    <h3><a href="{{ url_for('recipe', recipe_id=r.id) }}">{{ r.title }}</a></h3>
+    <div class="muted small">{{ r.cuisine }} · {{ r.protein }} · {{ r.prep_minutes }} min</div>
+    <div class="small" style="margin-top:4px">
+      {% if s.avg_rating %}<span class="pill">★ {{ '%.1f'|format(s.avg_rating) }} ({{ s.ratings }})</span>{% else %}<span class="pill">not rated</span>{% endif %}
+      {% if s.times_planned %}<span class="pill">planned {{ s.times_planned }}×</span>{% endif %}
+      {% if r.source == 'ai' %}<span class="pill">from Claude</span>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No recipes match.</p>
+  {% endfor %}
+</div>
+{% endblock %}
