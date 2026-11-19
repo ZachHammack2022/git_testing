@@ -348,6 +348,9 @@ def create_app(db_file: str | None = None) -> Flask:
                                and st.get("state") not in autocart.BACKGROUND_STATES,
                                estimate=ordering.estimate_total(order["items"]),
                                chosen={i["key"]: ordering.chosen_option(i) for i in order["items"]},
+                               shown={i["key"]: ordering.display_options(i) for i in order["items"]},
+                               missing=sum(1 for i in order["items"] if "options" not in i),
+                               looked_up=sum(1 for i in order["items"] if "options" in i),
                                autofill_ready=autocart.playwright_available(),
                                can_sync=autocart.playwright_available() and autocart.has_profile())
 
@@ -489,7 +492,7 @@ def create_app(db_file: str | None = None) -> Flask:
         order = db.get_order(conn, order_id) or abort(404)
         asin = ((request.get_json(silent=True) or {}).get("asin") or request.form.get("asin", "")).upper()
         item = next((i for i in order["items"] if i["key"] == key), None) or abort(404)
-        option = next((o for o in item.get("options") or [] if o["asin"] == asin), None) or abort(400)
+        option = next((o for o in ordering.display_options(item) if o["asin"] == asin), None) or abort(400)
         label = option["title"][:60]
         db.set_product_pick(conn, key, ordering.whole_foods_product_url(asin), label)
         items = ordering.refresh_links(order["items"], db.product_picks(conn))
