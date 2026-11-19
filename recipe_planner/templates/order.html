@@ -108,6 +108,17 @@
   </form>
   <div class="small" id="extras" style="margin-top:6px; display:none"></div>
   {% endif %}
+  {% if autofill_ready and order.status != 'placed' %}
+  <div class="row small" id="preview-bar" style="margin-top:10px">
+    {% if estimate.priced %}<span id="estimate"><strong>≈ ${{ '%.2f'|format(estimate.total) }}</strong> <span class="muted">for {{ estimate.priced }} of {{ estimate.count }} items priced (one of each)</span></span>{% endif %}
+    <span class="muted" id="preview-line">{% if autofill.state == 'previewing' %}{{ autofill.message or 'Looking up products…' }}{% elif autofill.preview and autofill.preview.error %}{{ autofill.preview.error }}{% endif %}</span>
+    <form method="post" action="{{ url_for('preview_order', order_id=order.id) }}" style="margin-left:auto" class="row">
+      {% if order['items']|selectattr('options')|list %}<input type="hidden" name="refresh" value="1">{% endif %}
+      <button type="submit" id="preview-btn" {{ 'disabled' if autofill.state in ('previewing', 'syncing') or autofill_active }}>{{ '🔍 Looking up…' if autofill.state == 'previewing' else ('🔍 Refresh products' if order['items']|selectattr('options')|list else '🔍 Preview products') }}</button>
+      {% if autofill.preview and autofill.preview.error %}<button type="submit" name="show" value="1" class="small">Preview with the browser showing</button>{% endif %}
+    </form>
+  </div>
+  {% endif %}
   <p class="muted small" style="margin-bottom:0">Each link opens Whole Foods on Amazon (or your saved product). Add it to your cart, then tick it off here. Save a product link once and future orders go straight to it.</p>
 </div>
 
@@ -122,7 +133,23 @@
         <a class="name" href="{{ it.url }}" target="_blank" rel="noopener">{{ it.name }}</a>
         {% if it.amount %}<span class="muted"> — {{ it.amount }}</span>{% endif %}
         {% if it.recipes and it.recipes[0] in ('always buy', 'added') %}<span class="pill">{{ it.recipes[0] }}</span>{% endif %}
-        {% if it.has_pick %}<span class="pill">your usual{% if it.pick_label %}: {{ it.pick_label }}{% endif %}</span>{% endif %}
+        {% if it.has_pick %}<span class="pill pick-pill">your usual{% if it.pick_label %}: {{ it.pick_label }}{% endif %}</span>{% endif %}
+        {% if it.options %}
+        {% set ch = chosen[it.key] %}
+        <div class="product" data-options='{{ it.options|tojson|forceescape }}' data-chosen="{{ ch.asin if ch else '' }}" data-start="{{ it.options.index(ch) if ch in it.options else 0 }}">
+          <img alt="" loading="lazy" referrerpolicy="no-referrer">
+          <div class="pinfo">
+            <a class="ptitle small" target="_blank" rel="noopener"></a>
+            <div class="small"><strong class="pprice"></strong> <span class="muted punit"></span> <span class="pill pmine" hidden>✓ will be added</span></div>
+            <div class="row small pnav">
+              <button type="button" class="pprev" aria-label="Previous product">‹</button>
+              <span class="muted pcount"></span>
+              <button type="button" class="pnext" aria-label="Next product">›</button>
+              <button type="button" class="puse primary">Use this one</button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
         <details>
           <summary class="small">{{ 'change product' if it.has_pick else 'save product' }}</summary>
           <form method="post" action="{{ url_for('save_pick', order_id=order.id) }}" class="row">
@@ -214,6 +241,47 @@ let polling = false;
 const doneCardShown = !!document.getElementById('ready-card');
 const FILL_STATES = ['starting', 'signin', 'human', 'waiting', 'running'];
 
+// Product previews: flip through options, "Use this one" saves it as your pick.
+const money = (p) => p == null ? 'price n/a' : '$' + p.toFixed(2);
+document.querySelectorAll('.product').forEach(box => {
+  const opts = JSON.parse(box.dataset.options);
+  let i = +box.dataset.start || 0;
+  const li = box.closest('li');
+  const q = (sel) => box.querySelector(sel);
+  function show() {
+    const o = opts[i];
+    q('img').src = o.image || ''; q('img').style.visibility = o.image ? '' : 'hidden';
+    q('.ptitle').textContent = o.title || o.asin; q('.ptitle').href = `https://www.amazon.com/dp/${o.asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
+    q('.pprice').textContent = money(o.price);
+    q('.punit').textContent = o.unit_price ? `(${o.unit_price})` : '';
+    q('.pcount').textContent = `${i + 1} of ${opts.length}`;
+    const mine = o.asin === box.dataset.chosen;
+    q('.pmine').hidden = !mine; q('.puse').hidden = mine;
+    q('.pprev').disabled = i === 0; q('.pnext').disabled = i === opts.length - 1;
+  }
+  q('.pprev').addEventListener('click', () => { if (i > 0) { i--; show(); } });
+  q('.pnext').addEventListener('click', () => { if (i < opts.length - 1) { i++; show(); } });
+  q('.puse').addEventListener('click', async () => {
+    const btn = q('.puse'); btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res = await fetch(`/orders/${orderId}/items/${encodeURIComponent(li.dataset.key)}/choose`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({asin: opts[i].asin})});
+      const d = await res.json();
+      box.dataset.chosen = opts[i].asin;
+      li.dataset.url = `https://www.amazon.com/dp/${opts[i].asin}?almBrandId={{ WF_BRAND }}&fpw=alm`;
+      li.querySelector('a.name').href = li.dataset.url;
+      let pill = li.querySelector('.pick-pill');
+      if (!pill) { pill = document.createElement('span'); pill.className = 'pill pick-pill'; li.querySelector('a.name').parentNode.insertBefore(pill, box); }
+      pill.textContent = 'your usual: ' + d.label;
+      const est = document.getElementById('estimate');
+      if (est && d.estimate) est.querySelector('strong').textContent = '≈ $' + d.estimate.total.toFixed(2);
+    } catch (e) {}
+    btn.disabled = false; btn.textContent = 'Use this one';
+    show();
+  });
+  show();
+});
+
 function ago(t) {
   const s = Math.max(0, Math.round(Date.now() / 1000 - t));
   if (s < 45) return 'just now';
@@ -272,6 +340,9 @@ async function poll() {
     document.title = needsYou ? '✋ Needs you — ' + baseTitle : `${(d.added || []).length}/${total} · ${baseTitle}`;
     if (needsYou && lastState !== st.state) notify('Meal Planner needs you', st.message || 'Check the browser window.');
   }
+  const pl = document.getElementById('preview-line');
+  if (pl && st.state === 'previewing') pl.textContent = st.message || 'Looking up products…';
+  if (lastState === 'previewing' && st.state !== 'previewing') { location.reload(); return; }
   if (st.state === 'done' && FILL_STATES.includes(lastState)) notify('🛒 Your cart is ready for review', st.message || '');
   const wasFilling = FILL_STATES.includes(lastState);
   lastState = st.state;
@@ -306,7 +377,7 @@ const stale = (secs) => !sync || !sync.at || (Date.now() / 1000 - sync.at) > sec
 
 renderSync({{ (autofill.state or '')|tojson }});
 setInterval(() => { if (!polling) renderSync(lastState); }, 30000);
-{% if autofill_active or autofill.state == 'syncing' %}
+{% if autofill_active or autofill.state in ('syncing', 'previewing') %}
 startPolling();
 {% else %}
 if (canSync && stale(120)) startSync();                 // opening the page checks the cart

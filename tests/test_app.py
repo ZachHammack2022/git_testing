@@ -318,3 +318,33 @@ def test_free_port_skips_busy():
         assert free_port(busy) != busy
     finally:
         s.close()
+
+
+def test_product_preview_choose_and_estimate(client, app):
+    from recipe_planner import ordering
+
+    pid = _plan(client)
+    oid = int(client.post(f"/plans/{pid}/order").headers["Location"].rsplit("/", 1)[1])
+    conn = db.connect(app.config["DB_FILE"])
+    order = db.get_order(conn, oid)
+    a, b = order["items"][0], order["items"][1]
+    a["options"] = [{"asin": "B0AAAAAAA1", "title": "First <b>choice</b>", "image": "https://m.media-amazon.com/x.jpg",
+                     "price": 2.5, "unit_price": "$0.50/Ounce"},
+                    {"asin": "B0AAAAAAA2", "title": "Organic it's better", "image": "", "price": 4.0, "unit_price": ""}]
+    b["options"] = [{"asin": "B0BBBBBBB1", "title": "Only one", "image": "", "price": None, "unit_price": ""}]
+    db.save_order_items(conn, oid, order["items"])
+
+    page = client.get(f"/orders/{oid}").get_data(as_text=True)
+    assert "≈ $2.50" in page and "for 1 of" in page
+    assert "<b>choice" not in page  # option data is escaped
+    assert "Refresh products" in page
+
+    r = client.post(f"/orders/{oid}/items/{a['key']}/choose", json={"asin": "B0AAAAAAA2"})
+    d = r.get_json()
+    assert d["label"] == "Organic it's better" and d["estimate"]["total"] == 4.0
+    item = db.get_order(conn, oid)["items"][0]
+    assert item["has_pick"] and "B0AAAAAAA2" in item["url"] and "almBrandId" in item["url"]
+    assert ordering.chosen_option(item)["asin"] == "B0AAAAAAA2"
+    assert db.product_picks(conn)[a["key"]]["label"] == "Organic it's better"
+    # Unknown product id is refused.
+    assert client.post(f"/orders/{oid}/items/{a['key']}/choose", json={"asin": "B0NOPE0000"}).status_code == 400

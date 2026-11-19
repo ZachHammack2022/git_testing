@@ -30,7 +30,9 @@ def card(asin, title, sponsored=False, button=True):
     button = button and not STATE["no_buttons"]
     btn = (f"<button onclick=\"fetch('/added?asin={asin}')\">Add to cart</button>" if button else "")
     return (f"<div data-component-type='s-search-result' data-asin='{asin}'>"
-            f"{'<span>Sponsored</span>' if sponsored else ''}<h2><a href='/dp/{asin}'>{title}</a></h2>{btn}</div>")
+            f"{'<span>Sponsored</span>' if sponsored else ''}<img class='s-image' src='https://m.media-amazon.com/images/I/{asin}.jpg'>"
+            f"<h2><a href='/dp/{asin}'>{title}</a></h2><span class='a-price'><span class='a-offscreen'>$3.49</span></span>"
+            f"<span>($0.70/Ounce)</span>{btn}</div>")
 
 
 def search_page(q):
@@ -38,6 +40,8 @@ def search_page(q):
         return card("B0LIMEXXXX", "Organic Limes", button=False)
     if q == "nothing":
         return "<p>No results</p>"
+    if q == "grapes":
+        return "".join(card(f"B0GRAPE{n:03d}", f"Grapes option {n}") for n in range(1, 9))
     asin = ("B0" + q.upper() + "XXXXXXXX")[:10]  # real ASINs are 10 characters
     return card("B0SPONSORX", "Sponsored Thing", sponsored=True) + card(asin, f"365 {q}")
 
@@ -73,8 +77,10 @@ class Fake(http.server.BaseHTTPRequestHandler):
             body = search_page(parse_qs(u.query)["k"][0])
         elif u.path.startswith("/dp/"):
             asin = u.path.split("/")[-1]
-            body = ("" if STATE["no_buttons"] else
-                    f"<button id='add-to-cart-button' onclick=\"fetch('/added?asin={asin}')\">Add to Cart</button>")
+            body = (f"<span id='productTitle'>Picked product {asin}</span>"
+                    f"<span class='a-price'><span class='a-offscreen'>$5.99</span></span>")
+            body += ("" if STATE["no_buttons"] else
+                     f"<button id='add-to-cart-button' onclick=\"fetch('/added?asin={asin}')\">Add to Cart</button>")
         elif u.path == "/never":
             CLICKS.append("auto-clicked-checkpoint")
             body = home_page()
@@ -100,6 +106,7 @@ def fake_amazon(tmp_path, monkeypatch):
     monkeypatch.setattr(autocart, "CART_URL", base + "/cart")
     monkeypatch.setattr(autocart, "WF_CART_URL", base + "/cart/localmarket")
     monkeypatch.setattr(autocart, "PAUSE_BETWEEN_ITEMS", (0.1, 0.2))
+    monkeypatch.setattr(autocart, "SEARCH_BASE", base + "/s")
     yield base
     srv.shutdown()
 
@@ -252,3 +259,39 @@ def test_sync_signed_out_reports_instead_of_unticking(fake_amazon, tmp_path):
     assert autocart.sync_cart(oid, headless=True, profile_dir=str(tmp_path / "p")) == 1
     assert db.get_order(conn, oid)["items"][0]["added"] is True   # didn't wipe ticks
     assert "sign in" in autocart.read_status(oid)["sync"]["error"]
+
+
+@pytest.mark.skipif(not BROWSERS, reason="no local Chromium")
+def test_preview_reads_options_and_your_pick(fake_amazon, tmp_path):
+    conn, oid = _order(fake_amazon, ["grapes", "egg", "nothing"])
+    order = db.get_order(conn, oid)
+    order["items"][1].update(url=f"{fake_amazon}/dp/B0PICKEDXX", has_pick=True)  # your saved product
+    db.save_order_items(conn, oid, order["items"])
+    autocart.write_status(oid, state="done", added=2)
+
+    assert autocart.preview_order(oid, headless=True, profile_dir=str(tmp_path / "profile")) == 1
+    st = autocart.read_status(oid)
+    # "egg" hits Amazon's bot check: a headless preview stops and says so instead of clicking.
+    assert st["preview"]["ok"] is False and "browser showing" in st["preview"]["error"]
+    assert st["state"] == "done"  # the "cart ready" card is left alone
+    assert "auto-clicked-checkpoint" not in CLICKS
+    grapes = db.get_order(conn, oid)["items"][0]["options"]
+    assert len(grapes) == autocart.PREVIEW_OPTIONS
+    assert grapes[0] == {"asin": "B0GRAPE001", "title": "Grapes option 1",
+                         "image": "https://m.media-amazon.com/images/I/B0GRAPE001.jpg",
+                         "price": 3.49, "unit_price": "$0.70/Ounce"}
+
+    # Get past the check (as if the person did), then finish the rest.
+    order = db.get_order(conn, oid)
+    order["items"][1]["name"] = "eggs"
+    db.save_order_items(conn, oid, order["items"])
+    assert autocart.preview_order(oid, headless=True, profile_dir=str(tmp_path / "profile")) == 0
+    items = db.get_order(conn, oid)["items"]
+    assert items[0]["options"] == grapes  # already looked up: not repeated
+    eggs = items[1]["options"]
+    assert eggs[0]["pick"] and eggs[0]["asin"] == "B0PICKEDXX" and eggs[0]["price"] == 5.99
+    assert eggs[1]["asin"] == "B0EGGSXXXX"  # sponsored result skipped
+    assert items[2]["options"] == []
+    st = autocart.read_status(oid)
+    assert st["preview"]["ok"] and st["preview"]["found"] == 1 and st["state"] == "done"
+    assert not CLICKS or set(CLICKS) <= {"checkpoint-shown"}  # looked, never added anything

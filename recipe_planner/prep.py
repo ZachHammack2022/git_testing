@@ -23,6 +23,9 @@ DAY_OF = ["avocado", "cilantro", "basil", "parsley", "mint", "dill", "tomato", "
 # Cook once, use twice (keeps 4-5 days in the fridge).
 GRAINS = ["rice", "brown rice", "jasmine rice", "basmati rice", "quinoa", "farro", "barley",
           "lentil", "black bean", "chickpea", "wild rice"]
+# "rice vinegar", "rice noodles"... aren't batch-cooked grains.
+NOT_GRAIN = ("vinegar", "noodle", "vermicelli", "paper", "wine", "flour", "cake", "milk", "pasta",
+             "soup", "puree", "mirin")
 SAUCE_STEP = re.compile(r"^(whisk|mix|stir|combine|blend|shake)\b.*\b(sauce|dressing|marinade|"
                         r"vinaigrette|glaze)\b", re.I)
 MARINATE = re.compile(r"\bmarinat", re.I)
@@ -64,7 +67,8 @@ def _session(meals: list[dict]) -> list[dict]:
             unit = (ing.get("unit") or "").lower().rstrip("s")
             if "canned" in key or "frozen" in key or "cooked" in key or unit in ("can", "jar", "pouch"):
                 continue  # already cooked, nothing to prep
-            if _match(name, GRAINS) and ing.get("category") != "produce":
+            if (_match(name, GRAINS) and ing.get("category") != "produce"
+                    and not any(w in key for w in NOT_GRAIN)):
                 bucket = grains
             elif _match(name, CHOP) and ing.get("category") in (None, "", "produce"):
                 bucket = chop

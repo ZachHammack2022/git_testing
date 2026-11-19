@@ -34,7 +34,8 @@ ADD_BUTTON = re.compile(r"^\s*add(\s+to\s+cart)?\s*$|^\s*add\b.*\bto\s+(your\s+)
 GREETINGS = ["#nav-link-accountList-nav-line-1", "#nav-link-accountList .nav-line-1",
              "#glow-ingress-line1", "#nav-greeting-name"]
 FAIL_STREAK_PAUSE = 3
-ACTIVE_STATES = ("starting", "signin", "human", "waiting", "running", "syncing")
+ACTIVE_STATES = ("starting", "signin", "human", "waiting", "running", "syncing", "previewing")
+BACKGROUND_STATES = ("syncing", "previewing")  # background jobs, not a cart-filling run
 PAUSE_BETWEEN_ITEMS = (2.5, 5.0)  # seconds; a human-ish pace makes Amazon's checks rarer
 AMAZON_HOME = os.environ.get("AUTOCART_HOME", "https://www.amazon.com/")
 CART_URL = os.environ.get("AUTOCART_CART", ordering.AMAZON_CART)
@@ -46,6 +47,8 @@ CART_ITEMS = ("#sc-active-cart [data-asin], .sc-list-item[data-asin], "
               "[data-name='Active Items'] [data-asin], .sc-list-item-content[data-asin]")
 SYNC_STATES = ("syncing",)
 RESULT_CARDS = '[data-component-type="s-search-result"]'
+SEARCH_BASE = os.environ.get("AUTOCART_SEARCH")  # tests point this at a fake Amazon
+PREVIEW_OPTIONS = 6
 
 
 # ---------------- status shared with the web app ----------------
@@ -534,6 +537,142 @@ def sync_cart(order_id: int, headless: bool = True, profile_dir: str | None = No
     return 0
 
 
+# ---------------- product preview ----------------
+
+_PRICE = re.compile(r"\$\s?(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)")
+_UNIT_PRICE = re.compile(r"\(\s*(\$\s?[\d.,]+\s*/\s*[^)]{1,24})\)")
+
+
+def _price(text: str) -> float | None:
+    m = _PRICE.search(text or "")
+    return float(m.group(1).replace(",", "")) if m else None
+
+
+def search_url(name: str) -> str:
+    if SEARCH_BASE:
+        from urllib.parse import quote_plus
+        return f"{SEARCH_BASE}?k={quote_plus(ordering.search_term(name))}"
+    return ordering.whole_foods_search_url(name)
+
+
+def read_results(page, limit: int = PREVIEW_OPTIONS) -> list[dict]:
+    """Non-sponsored search results: [{asin, title, image, price, unit_price}]."""
+    out = []
+    cards = page.locator(RESULT_CARDS)
+    for i in range(min(cards.count(), 16)):
+        card = cards.nth(i)
+        try:
+            text = card.inner_text(timeout=2000)
+        except Exception:
+            continue
+        asin = (card.get_attribute("data-asin") or "").strip().upper()
+        if re.search(r"\bSponsored\b", text) or not re.fullmatch(r"[A-Z0-9]{10}", asin):
+            continue
+        img = card.locator("img.s-image, img")
+        image = (img.first.get_attribute("src") or "") if img.count() else ""
+        price_text = _text(card.locator(".a-price:not(.a-text-price) .a-offscreen, .a-price .a-offscreen"))
+        unit = _UNIT_PRICE.search(text)
+        out.append({"asin": asin, "title": re.sub(r"\s+", " ", _text(card.locator("h2")))[:140],
+                    "image": image if image.startswith(("https://", "http://")) else "",
+                    "price": _price(price_text) or _price(text),
+                    "unit_price": re.sub(r"\s+", "", unit.group(1)) if unit else ""})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def read_product(page) -> dict | None:
+    """The product page currently loaded (for your saved pick)."""
+    asin = asin_from_url(page.url or "")
+    title = _text(page.locator("#productTitle, h1"))
+    if not asin or not title:
+        return None
+    img = page.locator("#landingImage, #imgTagWrapperId img, #main-image")
+    image = (img.first.get_attribute("src") or "") if img.count() else ""
+    return {"asin": asin, "title": re.sub(r"\s+", " ", title)[:140],
+            "image": image if image.startswith(("https://", "http://")) else "",
+            "price": _price(_text(page.locator(
+                "#corePrice_feature_div .a-offscreen, #corePriceDisplay_desktop_feature_div .a-offscreen, "
+                ".a-price .a-offscreen"))),
+            "unit_price": "", "pick": True}
+
+
+def preview_order(order_id: int, headless: bool = True, profile_dir: str | None = None,
+                  refresh: bool = False) -> int:
+    """Look up product options (photo, name, price) for each item, for the order page."""
+    from playwright.sync_api import sync_playwright
+
+    conn = db.connect()
+    db.init(conn)
+    order = db.get_order(conn, order_id)
+    if not order:
+        return 1
+    todo = [i["key"] for i in order["items"] if refresh or "options" not in i]
+    prev = read_status(order_id) or {}
+    before = prev.get("state") if prev.get("state") not in ACTIVE_STATES else prev.get("before_preview")
+    write_status(order_id, state="previewing", pid=os.getpid(), before_preview=before,
+                 message="Looking up products…", preview={"done": 0, "total": len(todo)})
+
+    def finish(**preview):
+        write_status(order_id, state=before if before == "done" else "idle", pid=None, message="",
+                     preview=dict(preview, at=time.time()))
+
+    def say(_state, message, **_extra):  # wait_for_human's messages, shown on the order page
+        write_status(order_id, message=message)
+
+    profile = profile_dir or str(Path(db.db_path()).parent / "browser-profile")
+    found = 0
+    try:
+        with sync_playwright() as pw:
+            ctx = _launch(pw, profile, headless)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            for n, key in enumerate(todo, 1):
+                item = next((i for i in db.get_order(conn, order_id)["items"] if i["key"] == key), None)
+                if not item:
+                    continue
+                write_status(order_id, message=f"Looking up {item['name']} ({n} of {len(todo)})…",
+                             preview={"done": n - 1, "total": len(todo)})
+                options = []
+                if item.get("has_pick") and asin_from_url(item.get("url", "")):
+                    page.goto(item["url"], wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(800)
+                    if needs_human(page) and (headless or not wait_for_human(page, say)):
+                        ctx.close()
+                        finish(ok=False, error=_PREVIEW_BLOCKED)
+                        return 1
+                    mine = read_product(page)
+                    if mine:
+                        options.append(mine)
+                page.goto(search_url(item["name"]), wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(1000)
+                if needs_human(page) and (headless or not wait_for_human(page, say)):
+                    ctx.close()
+                    finish(ok=False, error=_PREVIEW_BLOCKED)
+                    return 1
+                seen = {o["asin"] for o in options}
+                options += [o for o in read_results(page) if o["asin"] not in seen]
+                if options:
+                    found += 1
+                order = db.get_order(conn, order_id)  # re-read: you may be ticking things meanwhile
+                for i in order["items"]:
+                    if i["key"] == key:
+                        i["options"] = options[:PREVIEW_OPTIONS + 1]
+                db.save_order_items(conn, order_id, order["items"])
+                page.wait_for_timeout(int(random.uniform(*PAUSE_BETWEEN_ITEMS) * 1000))
+            ctx.close()
+    except Exception as e:
+        finish(ok=False, error=f"Stopped: {e.__class__.__name__}. Is the cart filler window still open? "
+                               "Close it and try again.")
+        return 1
+    finish(ok=True, found=found, looked_up=len(todo))
+    print(f"Found products for {found} of {len(todo)} item(s).")
+    return 0
+
+
+_PREVIEW_BLOCKED = ("Amazon wants you to sign in or confirm you're human first. Use "
+                    "\"Preview with the browser showing\" and deal with it in the window.")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--order", type=int, help="order id (default: latest unplaced order)")
@@ -543,11 +682,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-learn", action="store_true", help="don't remember the products it picks")
     p.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--sync", action="store_true", help="read your Amazon cart and update the ticks")
-    p.add_argument("--show", action="store_true", help="with --sync: show the browser window")
+    p.add_argument("--show", action="store_true", help="with --sync/--preview: show the browser window")
+    p.add_argument("--preview", action="store_true", help="look up product photos and prices")
+    p.add_argument("--refresh", action="store_true", help="with --preview: look up every item again")
     a = p.parse_args(argv)
     if not playwright_available():
         print("Needs Playwright:  pip install playwright && python -m playwright install chromium")
         return 2
+    if a.preview:
+        order = pick_order(db.connect(), a.order)
+        return preview_order(order["id"], headless=not a.show, profile_dir=a.profile,
+                             refresh=a.refresh) if order else 1
     if a.sync:
         order = pick_order(db.connect(), a.order)
         return sync_cart(order["id"], headless=not a.show, profile_dir=a.profile) if order else 1

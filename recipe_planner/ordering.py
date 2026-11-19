@@ -113,3 +113,22 @@ def merge_extras(rows: list[dict], lines: list[str], picks: dict[str, dict], sou
             rows.append(item)
             by_key[item["key"]] = item
     return rows
+
+
+def chosen_option(item: dict) -> dict | None:
+    """The previewed product this item will get: your pick if we know it, else what the cart
+    filler would take (the first non-sponsored result)."""
+    options = item.get("options") or []
+    if not options:
+        return None
+    want = item.get("asin") or (_ASIN.search(item.get("url", "")) or [None, None])[1]
+    if item.get("has_pick") and want:
+        want = want.upper()
+        return next((o for o in options if o["asin"] == want), options[0])
+    return options[0]
+
+
+def estimate_total(items: list[dict]) -> dict:
+    """{total, priced, count} over the previewed choices (one of each item)."""
+    prices = [o["price"] for o in (chosen_option(i) for i in items) if o and o.get("price")]
+    return {"total": round(sum(prices), 2), "priced": len(prices), "count": len(items)}

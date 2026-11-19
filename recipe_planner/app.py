@@ -59,7 +59,8 @@ def create_app(db_file: str | None = None) -> Flask:
     @app.context_processor
     def _globals():
         return {"ai_available": ai.available(), "DAYS": db.DAYS,
-                "WHOLE_FOODS": ordering.WHOLE_FOODS_STOREFRONT, "AMAZON_CART": ordering.AMAZON_CART}
+                "WHOLE_FOODS": ordering.WHOLE_FOODS_STOREFRONT, "AMAZON_CART": ordering.AMAZON_CART,
+                "WF_BRAND": ordering.WHOLE_FOODS_BRAND}
 
     @app.template_filter("pretty_date")
     def _pretty_date(s):
@@ -343,7 +344,9 @@ def create_app(db_file: str | None = None) -> Flask:
         return render_template("order.html", order=order, groups=groups, plan=plan,
                                text=grocery.as_text(order["items"]), autofill=st,
                                autofill_active=st.get("state") in autocart.ACTIVE_STATES
-                               and st.get("state") != "syncing",
+                               and st.get("state") not in autocart.BACKGROUND_STATES,
+                               estimate=ordering.estimate_total(order["items"]),
+                               chosen={i["key"]: ordering.chosen_option(i) for i in order["items"]},
                                autofill_ready=autocart.playwright_available(),
                                can_sync=autocart.playwright_available() and autocart.has_profile())
 
@@ -431,6 +434,50 @@ def create_app(db_file: str | None = None) -> Flask:
         if request.is_json:
             return jsonify(started=started)
         return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/preview")
+    def preview_order(order_id):
+        """Look up product photos and prices for each item (background browser)."""
+        import subprocess
+        import sys
+
+        conn = get_conn()
+        db.get_order(conn, order_id) or abort(404)
+        if not autocart.playwright_available():
+            flash("Product previews need Playwright (same one-time setup as Fill my cart).", "error")
+            return redirect(url_for("show_order", order_id=order_id))
+        if not autocart.is_running(order_id):
+            env = dict(os.environ, RECIPE_DB=app.config["DB_FILE"])
+            args = [sys.executable, "-m", "recipe_planner.autocart", "--preview", "--order", str(order_id)]
+            if request.form.get("show"):
+                args.append("--show")
+            if request.form.get("refresh"):
+                args.append("--refresh")
+            log = open(autocart.status_path(order_id).with_suffix(".preview.log"), "w")
+            subprocess.Popen(args, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            autocart.write_status(order_id, state="previewing", message="Looking up products…")
+        else:
+            flash("The browser is busy with this order right now; try again in a moment.", "error")
+        return redirect(url_for("show_order", order_id=order_id))
+
+    @app.post("/orders/<int:order_id>/items/<path:key>/choose")
+    def choose_product(order_id, key):
+        """'Use this one' on a previewed product: it becomes your saved pick for this item."""
+        conn = get_conn()
+        order = db.get_order(conn, order_id) or abort(404)
+        asin = ((request.get_json(silent=True) or {}).get("asin") or request.form.get("asin", "")).upper()
+        item = next((i for i in order["items"] if i["key"] == key), None) or abort(404)
+        option = next((o for o in item.get("options") or [] if o["asin"] == asin), None) or abort(400)
+        label = option["title"][:60]
+        db.set_product_pick(conn, key, ordering.whole_foods_product_url(asin), label)
+        items = ordering.refresh_links(order["items"], db.product_picks(conn))
+        for i in items:
+            if i["key"] == key:
+                i["asin"] = asin
+        db.save_order_items(conn, order_id, items)
+        if request.is_json:
+            return jsonify(ok=True, label=label, estimate=ordering.estimate_total(items))
+        return redirect(url_for("show_order", order_id=order_id) + f"#item-{key.replace(' ', '-')}")
 
     @app.post("/orders/<int:order_id>/autofill/go")
     def autofill_go(order_id):

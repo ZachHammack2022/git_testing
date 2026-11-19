@@ -70,3 +70,10 @@ def test_prep_page_ticks_and_claude_version(client, app, monkeypatch):
     assert "Built from your recipes" in client.get(f"/plans/{pid}/prep").get_data(as_text=True)
     # Ticks survive switching versions.
     assert db.get_prep(db.connect(app.config["DB_FILE"]), pid)["done"] == ["abc"]
+
+
+def test_rice_products_are_not_grains():
+    r = _recipe("Bowls", [("rice vermicelli", 4, "oz", "pantry"), ("rice vinegar", 1, "tbsp", "pantry"),
+                          ("basmati rice", 1, "cup", "pantry")])
+    texts = [t["text"] for s in prep.builtin_plan(_plan(("Mon", r)))["sessions"] for t in s["tasks"]]
+    assert texts == ["Cook basmati rice (1 cup)"]
